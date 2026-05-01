@@ -157,6 +157,15 @@ def chat():
     )
     
     reply = response.choices[0].message.content
+
+    # Mandar a Zapier si hay info relevante
+    zapier_url = os.environ.get("ZAPIER_WEBHOOK")
+    if zapier_url and any(word in user_message.lower() for word in ["presupuesto", "zona", "comprar", "rentar", "invertir"]):
+        requests.post(zapier_url, json={
+            "mensaje": user_message,
+            "respuesta": reply
+        })
+
     return {"reply": reply}
 
 @app.route("/webhook", methods=["GET"])
