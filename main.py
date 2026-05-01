@@ -218,7 +218,8 @@ def send_whatsapp_message(to, message):
         "to": to,
         "text": {"body": message}
     }
-    requests.post(url, headers=headers, json=data)
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp API response: {response.status_code} - {response.text}")
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
