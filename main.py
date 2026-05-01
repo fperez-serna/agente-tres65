@@ -53,5 +53,46 @@ def verify_webhook():
         return challenge, 200
     return "Forbidden", 403
 
+@app.route("/webhook", methods=["POST"])
+def receive_message():
+    data = request.json
+    
+    try:
+        message = data["entry"][0]["changes"][0]["value"]["messages"][0]
+        user_message = message["text"]["body"]
+        phone_number = message["from"]
+        
+        # Mandar a Sofía
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ]
+        )
+        
+        reply = response.choices[0].message.content
+        
+        # Responder por WhatsApp
+        send_whatsapp_message(phone_number, reply)
+        
+    except Exception as e:
+        print(f"Error: {e}")
+    
+    return "OK", 200
+
+def send_whatsapp_message(to, message):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "text": {"body": message}
+    }
+    requests.post(url, headers=headers, json=data)
+
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
