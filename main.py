@@ -96,6 +96,20 @@ Si el cliente menciona una preocupación o divaga — reconócela en UNA oració
 Si ya tienes la ficha completa (todos los pasos) y el cliente hace una pregunta, llámalo por su nombre, responde brevemente y pregunta: "hay algo más en lo que te pueda ayudar?"
 Nunca hagas dos preguntas seguidas. Nunca saltes un paso.
 
+CUANDO ALGUIEN OFRECE UN SERVICIO O ES PROVEEDOR:
+Si alguien menciona que ofrece un servicio, producto, es proveedor, constructor, desarrollador, agente, o viene a vender algo — hazlo sentir bienvenido y manda EXACTAMENTE este mensaje, sin cambiar nada:
+"Qué gusto! Nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos en un solo mensaje la siguiente información en este orden:
+
+Nombre de la compañía:
+Tipo de servicio:
+Zonas que cubren:
+Correo:
+Redes sociales:
+Teléfono de contacto:
+
+Así lo tenemos todo listo para cuando lo necesitemos."
+No hagas más preguntas. Espera que el cliente responda con su info.
+
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
 Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde con calidez y agrega al final: MANDAR_BOTONES_ASESOR
 Ejemplo: "hay mucho en lo que te puedo ayudar, y puedo conectarte con un asesor cuando quieras."
@@ -444,6 +458,25 @@ def receive_message():
 
         elif msg_type == "text":
             user_message = message["text"]["body"]
+
+            # Detección de proveedor por keywords
+            proveedor_keywords = ["ofrezco", "ofrecemos", "proveedor", "proveedora", "somos una empresa",
+                                   "mi empresa", "nuestra empresa", "constructor", "constructora",
+                                   "desarrollador", "desarrolladora", "ventas b2b", "servicio de",
+                                   "servicios de", "te ofrezco", "les ofrezco", "les ofrecemos"]
+            if any(k in user_message.lower() for k in proveedor_keywords):
+                send_whatsapp_message(phone_number, (
+                    "Qué gusto! Nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta "
+                    "de proveedores, compártenos en un solo mensaje la siguiente información en este orden:\n\n"
+                    "Nombre de la compañía:\n"
+                    "Tipo de servicio:\n"
+                    "Zonas que cubren:\n"
+                    "Correo:\n"
+                    "Redes sociales:\n"
+                    "Teléfono de contacto:\n\n"
+                    "Así lo tenemos todo listo para cuando lo necesitemos."
+                ))
+                return "OK", 200
 
             # Capturar contexto del anuncio solo en el primer mensaje
             if phone_number not in ad_context:
