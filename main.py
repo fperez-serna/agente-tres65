@@ -15,6 +15,7 @@ conversation_history = {}
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
+pending_decision = {}  # clientes que vieron los botones pero no han decidido
 
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -148,6 +149,8 @@ def send_whatsapp_contact_buttons(to):
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp buttons: {response.status_code} - {response.text}")
+    if response.ok:
+        pending_decision[to] = True
 
 
 def send_whatsapp_calendly_button(to):
@@ -277,6 +280,7 @@ def receive_message():
 
         if msg_type == "interactive":
             button_id = message["interactive"]["button_reply"]["id"]
+            pending_decision.pop(phone_number, None)
             print(f"[{phone_number}] Botón: {button_id}")
 
             if button_id == "agendar_llamada":
@@ -295,6 +299,11 @@ def receive_message():
             return "OK", 200
 
         user_message = message["text"]["body"]
+
+        if pending_decision.get(phone_number):
+            send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
+            send_whatsapp_contact_buttons(phone_number)
+            return "OK", 200
 
         if phone_number not in conversation_history:
             conversation_history[phone_number] = []
