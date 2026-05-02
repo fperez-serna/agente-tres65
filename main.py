@@ -398,6 +398,12 @@ def receive_message():
         # Client is active — cancel any pending follow-up
         cancel_followup(phone_number)
 
+        # Proveedores: bloquear acceso a asesores
+        if phone_number in waiting_for_supplier_info and msg_type == "interactive":
+            send_whatsapp_message(phone_number,
+                "este canal es exclusivo para búsqueda inmobiliaria. para hablar con el equipo de TRES65 sobre proveedores, escríbenos a nuestro correo oficial.")
+            return "OK", 200
+
         if msg_type == "interactive":
             interactive_type = message["interactive"].get("type")
             pending_decision.pop(phone_number, None)
@@ -467,9 +473,14 @@ def receive_message():
                                    "desarrollador", "desarrolladora", "ventas b2b", "servicio de",
                                    "servicios de", "te ofrezco", "les ofrezco", "les ofrecemos"]
             if phone_number in waiting_for_supplier_info:
-                waiting_for_supplier_info.discard(phone_number)
-                send_whatsapp_message(phone_number,
-                    "Muchas gracias, ya quedó guardado. En cuanto lo necesitemos nos ponemos en contacto. Que tengas excelente día!")
+                asesor_keywords = ["asesor", "hablar con", "quiero hablar", "contactar", "persona", "humano", "ejecutivo"]
+                if any(k in user_message.lower() for k in asesor_keywords):
+                    send_whatsapp_message(phone_number,
+                        "este canal es exclusivo para búsqueda inmobiliaria. para hablar con el equipo sobre proveedores, escríbenos a nuestro correo oficial.")
+                else:
+                    waiting_for_supplier_info.discard(phone_number)
+                    send_whatsapp_message(phone_number,
+                        "Muchas gracias, ya quedó guardado. En cuanto lo necesitemos nos ponemos en contacto. Que tengas excelente día!")
                 return "OK", 200
 
             if any(k in user_message.lower() for k in proveedor_keywords):
