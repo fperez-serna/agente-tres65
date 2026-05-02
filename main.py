@@ -150,6 +150,31 @@ def send_whatsapp_contact_buttons(to):
     print(f"WhatsApp buttons: {response.status_code} - {response.text}")
 
 
+def send_whatsapp_calendly_button(to):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": "aquí puedes agendar tu llamada con uno de nuestros asesores, cualquier duda aquí estoy"},
+            "action": {
+                "name": "cta_url",
+                "parameters": {
+                    "display_text": "Agendar llamada",
+                    "url": CALENDLY_URL
+                }
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp calendly button: {response.status_code} - {response.text}")
+
+
 def cancel_followup(phone_number):
     if phone_number in follow_up_jobs:
         try:
@@ -255,10 +280,7 @@ def receive_message():
             print(f"[{phone_number}] Botón: {button_id}")
 
             if button_id == "agendar_llamada":
-                send_whatsapp_message(
-                    phone_number,
-                    f"perfecto, aquí puedes agendar tu llamada con uno de nuestros asesores:\n\n{CALENDLY_URL}\n\ncualquier duda aquí estoy"
-                )
+                send_whatsapp_calendly_button(phone_number)
                 schedule_followup(phone_number)
 
             elif button_id == "por_whatsapp":
