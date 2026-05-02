@@ -16,6 +16,7 @@ last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
 pending_decision = {}  # clientes que vieron los botones pero no han decidido
+ad_context = {}        # contexto del anuncio por el que llegó el lead
 
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -299,6 +300,19 @@ def receive_message():
 
         user_message = message["text"]["body"]
 
+        # Capturar contexto del anuncio solo en el primer mensaje
+        if phone_number not in ad_context:
+            referral = message.get("referral", {})
+            if referral:
+                parts = []
+                if referral.get("headline"):
+                    parts.append(f"Anuncio: {referral['headline']}")
+                if referral.get("body"):
+                    parts.append(f"Descripción: {referral['body']}")
+                if parts:
+                    ad_context[phone_number] = " | ".join(parts)
+                    print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
+
         if pending_decision.get(phone_number):
             send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
             send_whatsapp_contact_buttons(phone_number)
@@ -310,9 +324,13 @@ def receive_message():
         history = conversation_history[phone_number]
         history.append({"role": "user", "content": user_message})
 
+        system = SYSTEM_PROMPT
+        if ad_context.get(phone_number):
+            system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+
         response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history
+            messages=[{"role": "system", "content": system}] + history
         )
 
         reply = response.choices[0].message.content
