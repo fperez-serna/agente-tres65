@@ -224,9 +224,10 @@ def send_whatsapp_comprar_rentar_buttons(to):
 
 
 def send_whatsapp_vivir_invertir_buttons(to):
-    _send_interactive_buttons(to, "es para...", [
-        {"id": "para_vivir", "title": "Para vivir"},
-        {"id": "para_invertir", "title": "Para invertir"}
+    _send_interactive_buttons(to, "La propiedad que buscas es para...", [
+        {"id": "para_vivir",    "title": "Para vivir"},
+        {"id": "para_invertir", "title": "Para invertir"},
+        {"id": "algo_mas",      "title": "Algo más"}
     ])
 
 
@@ -428,6 +429,10 @@ def receive_message():
 
                 # Botones de decisión — guardar dato
                 client_data.setdefault(phone_number, {})
+                if button_id == "algo_mas":
+                    send_whatsapp_message(phone_number, "con gusto te ayudo. cuéntame, qué estás buscando?")
+                    return "OK", 200
+
                 if button_id in ("para_vivir", "para_invertir"):
                     client_data[phone_number]["intencion"] = button_title
                 elif button_id in ("comprar", "rentar"):
