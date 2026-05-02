@@ -18,8 +18,9 @@ follow_up_jobs = {}
 client_names = {}
 pending_decision = {}   # clientes que vieron los botones pero no han decidido
 ad_context = {}         # contexto del anuncio por el que llegó el lead
-waiting_for_email = set()   # números esperando correo
-waiting_for_ciudad = set()  # números esperando ciudad de origen
+waiting_for_email = set()          # números esperando correo
+waiting_for_ciudad = set()         # números esperando ciudad de origen
+waiting_for_supplier_info = set()  # proveedores esperando dar su info
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -97,8 +98,8 @@ Si ya tienes la ficha completa (todos los pasos) y el cliente hace una pregunta,
 Nunca hagas dos preguntas seguidas. Nunca saltes un paso.
 
 CUANDO ALGUIEN OFRECE UN SERVICIO O ES PROVEEDOR:
-Si alguien menciona que ofrece un servicio, producto, es proveedor, constructor, desarrollador, agente, o viene a vender algo — hazlo sentir bienvenido y manda EXACTAMENTE este mensaje, sin cambiar nada:
-"Qué gusto! Nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos en un solo mensaje la siguiente información en este orden:
+Si alguien menciona que ofrece un servicio, producto, es proveedor, constructor, desarrollador, agente, o viene a vender algo — manda EXACTAMENTE este mensaje, sin cambiar nada:
+"Gracias por contactarnos! Aunque este no es el canal indicado, nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos en un solo mensaje la siguiente información en este orden:
 
 Nombre de la compañía:
 Tipo de servicio:
@@ -108,7 +109,8 @@ Redes sociales:
 Teléfono de contacto:
 
 Así lo tenemos todo listo para cuando lo necesitemos."
-No hagas más preguntas. Espera que el cliente responda con su info.
+No hagas más preguntas. Espera que el proveedor responda con su info.
+Cuando el proveedor responda con su información, agradece con calidez y cierra la conversación.
 
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
 Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde con calidez y agrega al final: MANDAR_BOTONES_ASESOR
@@ -464,10 +466,17 @@ def receive_message():
                                    "mi empresa", "nuestra empresa", "constructor", "constructora",
                                    "desarrollador", "desarrolladora", "ventas b2b", "servicio de",
                                    "servicios de", "te ofrezco", "les ofrezco", "les ofrecemos"]
+            if phone_number in waiting_for_supplier_info:
+                waiting_for_supplier_info.discard(phone_number)
+                send_whatsapp_message(phone_number,
+                    "Muchas gracias, ya quedó guardado. En cuanto lo necesitemos nos ponemos en contacto. Que tengas excelente día!")
+                return "OK", 200
+
             if any(k in user_message.lower() for k in proveedor_keywords):
-                send_whatsapp_message(phone_number, (
-                    "Qué gusto! Nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta "
-                    "de proveedores, compártenos en un solo mensaje la siguiente información en este orden:\n\n"
+                SUPPLIER_MSG = (
+                    "Gracias por contactarnos! Aunque este no es el canal indicado, nos da mucho gusto "
+                    "recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos "
+                    "en un solo mensaje la siguiente información en este orden:\n\n"
                     "Nombre de la compañía:\n"
                     "Tipo de servicio:\n"
                     "Zonas que cubren:\n"
@@ -475,7 +484,9 @@ def receive_message():
                     "Redes sociales:\n"
                     "Teléfono de contacto:\n\n"
                     "Así lo tenemos todo listo para cuando lo necesitemos."
-                ))
+                )
+                send_whatsapp_message(phone_number, SUPPLIER_MSG)
+                waiting_for_supplier_info.add(phone_number)
                 return "OK", 200
 
             # Capturar contexto del anuncio solo en el primer mensaje
