@@ -76,16 +76,21 @@ En cada pregunta sobre presupuesto o zona, siempre deja abierta la puerta: "o pr
 DATOS CORE — en este orden de prioridad:
 1. Nombre completo — primer mensaje, siempre
 2. Teléfono — se extrae automáticamente del sistema, María no lo pide
-3. Contexto básico — compra o renta, para vivir o invertir, de fuera o ya vive en Mérida
-4. Presupuesto — preguntar con puerta abierta al asesor:
+3. Compra o renta — cuando llegue el momento natural de preguntar, agrega al final del mensaje exactamente: MANDAR_BOTONES_COMPRAR_RENTAR
+4. Para vivir o invertir — cuando llegue el momento natural de preguntar, agrega al final del mensaje exactamente: MANDAR_BOTONES_VIVIR_INVERTIR
+5. Presupuesto — preguntar con puerta abierta al asesor:
    "ya tienes un rango de inversión en mente o prefieres que un asesor experto te oriente con eso?"
-5. Correo — cuando ya tienes nombre completo, contexto y presupuesto, manda SOLO este mensaje, nada más:
+6. Correo — cuando ya tienes nombre completo, contexto y presupuesto, manda SOLO este mensaje, nada más:
    "perfecto, con lo que me cuentas voy a crear tu ficha para pasarte con el asesor que mejor se adapte a tu búsqueda. me compartes tu correo?"
    NO agregues nada después. Espera a que el cliente responda con su correo.
-
-6. Decisión de contacto — ÚNICAMENTE después de que el cliente te haya dado su correo, manda este mensaje exacto seguido del token:
+7. Decisión de contacto — ÚNICAMENTE después de que el cliente te haya dado su correo, manda este mensaje exacto seguido del token:
    "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres por WhatsApp también podemos. que te va mejor?"
    MANDAR_BOTONES_CONTACTO
+
+CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
+Si el cliente dice algo como "quiero hablar con un asesor", "me puedes contactar con alguien", "necesito ayuda", "quiero hablar con una persona" o cualquier variación — responde con calidez y agrega al final: MANDAR_BOTONES_ASESOR
+Ejemplo: "hay mucho en lo que te puedo ayudar, y también puedo conectarte directo con uno de nuestros asesores cuando quieras."
+MANDAR_BOTONES_ASESOR
 
 CONTEXTO DE MÉRIDA QUE PUEDES USAR:
 - El norte es lo más buscado: Temozón Norte, Cholul, Santa Gertrudis Copó, Montebello, Conkal
@@ -106,6 +111,8 @@ REGLAS QUE NUNCA ROMPES:
 - Nunca presiones
 - Nunca digas que eres inteligencia artificial o un bot
 - Si no sabes algo: "eso te lo confirma mejor un asesor experto de TRES65"
+- Si el cliente habla de política, religión u otros temas sensibles, redirige con calidez: "eso está fuera de mi área, pero imagínate tener tu propio espacio para sentarte con un café a tener esas pláticas tan buenas con los amigos. te ayudo a que eso sea realidad?" y agrega: MANDAR_BOTONES_ASESOR
+- Si el cliente insulta o usa lenguaje agresivo, responde una sola vez con amabilidad: "entiendo que puede ser frustrante, pero para poder ayudarte bien necesito que sigamos con respeto. de lo contrario tendré que finalizar la conversación." Si vuelve a insultar, responde únicamente: "voy a finalizar esta conversación. cuando gustes retomamos con gusto." y no respondas más.
 """
 
 
@@ -178,6 +185,47 @@ def send_whatsapp_calendly_button(to):
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp calendly button: {response.status_code} - {response.text}")
+
+
+def _send_interactive_buttons(to, body_text, buttons):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body_text},
+            "action": {"buttons": [{"type": "reply", "reply": b} for b in buttons]}
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp buttons ({buttons[0]['id']}...): {response.status_code}")
+    return response
+
+
+def send_whatsapp_comprar_rentar_buttons(to):
+    _send_interactive_buttons(to, "que prefieres?", [
+        {"id": "comprar", "title": "Comprar"},
+        {"id": "rentar", "title": "Rentar"}
+    ])
+
+
+def send_whatsapp_vivir_invertir_buttons(to):
+    _send_interactive_buttons(to, "es para...", [
+        {"id": "para_vivir", "title": "Para vivir"},
+        {"id": "para_invertir", "title": "Para invertir"}
+    ])
+
+
+def send_whatsapp_help_buttons(to):
+    _send_interactive_buttons(to, "como te puedo ayudar?", [
+        {"id": "tengo_duda", "title": "Tengo una duda"},
+        {"id": "agendar_asesor", "title": "Agendar con asesor"}
+    ])
 
 
 def cancel_followup(phone_number):
@@ -282,42 +330,56 @@ def receive_message():
 
         if msg_type == "interactive":
             button_id = message["interactive"]["button_reply"]["id"]
+            button_title = message["interactive"]["button_reply"]["title"]
             pending_decision.pop(phone_number, None)
             print(f"[{phone_number}] Botón: {button_id}")
 
             if button_id == "agendar_llamada":
                 send_whatsapp_calendly_button(phone_number)
                 schedule_followup(phone_number)
+                return "OK", 200
 
             elif button_id == "por_whatsapp":
                 send_whatsapp_message(
                     phone_number,
-                    "perfecto, en breve te escribe uno de nuestros asesores expertos. fue un gusto platicar contigo"
+                    "en breve te escribe uno de nuestros asesores expertos. fue un gusto platicar contigo"
                 )
+                return "OK", 200
 
-            return "OK", 200
+            elif button_id == "agendar_asesor":
+                send_whatsapp_calendly_button(phone_number)
+                schedule_followup(phone_number)
+                return "OK", 200
 
-        if msg_type != "text":
-            return "OK", 200
+            elif button_id == "tengo_duda":
+                send_whatsapp_message(phone_number, "cuéntame, en qué te puedo ayudar?")
+                return "OK", 200
 
-        user_message = message["text"]["body"]
+            # Botones de decisión (comprar/rentar, vivir/invertir) — continúan conversación con GPT
+            user_message = button_title
 
-        # Capturar contexto del anuncio solo en el primer mensaje
-        if phone_number not in ad_context:
-            referral = message.get("referral", {})
-            if referral:
-                parts = []
-                if referral.get("headline"):
-                    parts.append(f"Anuncio: {referral['headline']}")
-                if referral.get("body"):
-                    parts.append(f"Descripción: {referral['body']}")
-                if parts:
-                    ad_context[phone_number] = " | ".join(parts)
-                    print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
+        elif msg_type == "text":
+            user_message = message["text"]["body"]
 
-        if pending_decision.get(phone_number):
-            send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
-            send_whatsapp_contact_buttons(phone_number)
+            # Capturar contexto del anuncio solo en el primer mensaje
+            if phone_number not in ad_context:
+                referral = message.get("referral", {})
+                if referral:
+                    parts = []
+                    if referral.get("headline"):
+                        parts.append(f"Anuncio: {referral['headline']}")
+                    if referral.get("body"):
+                        parts.append(f"Descripción: {referral['body']}")
+                    if parts:
+                        ad_context[phone_number] = " | ".join(parts)
+                        print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
+
+            if pending_decision.get(phone_number):
+                send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
+                send_whatsapp_contact_buttons(phone_number)
+                return "OK", 200
+
+        else:
             return "OK", 200
 
         if phone_number not in conversation_history:
@@ -341,13 +403,23 @@ def receive_message():
         if len(history) > 20:
             conversation_history[phone_number] = history[-20:]
 
-        if "MANDAR_BOTONES_CONTACTO" in reply:
-            text_part = reply.replace("MANDAR_BOTONES_CONTACTO", "").strip()
-            if text_part:
-                send_whatsapp_message(phone_number, text_part)
-            send_whatsapp_contact_buttons(phone_number)
-        else:
-            send_whatsapp_message(phone_number, reply)
+        def dispatch_reply(reply_text):
+            tokens = {
+                "MANDAR_BOTONES_CONTACTO": send_whatsapp_contact_buttons,
+                "MANDAR_BOTONES_COMPRAR_RENTAR": send_whatsapp_comprar_rentar_buttons,
+                "MANDAR_BOTONES_VIVIR_INVERTIR": send_whatsapp_vivir_invertir_buttons,
+                "MANDAR_BOTONES_ASESOR": send_whatsapp_help_buttons,
+            }
+            for token, fn in tokens.items():
+                if token in reply_text:
+                    text_part = reply_text.replace(token, "").strip()
+                    if text_part:
+                        send_whatsapp_message(phone_number, text_part)
+                    fn(phone_number)
+                    return
+            send_whatsapp_message(phone_number, reply_text)
+
+        dispatch_reply(reply)
 
         last_maria_message_time[phone_number] = datetime.now()
         schedule_followup(phone_number)
