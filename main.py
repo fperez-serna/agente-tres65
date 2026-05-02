@@ -72,8 +72,7 @@ Inmediatamente después de saber si es para vivir o invertir, pregunta esto. Agr
 No preguntes nada más hasta recibir respuesta.
 
 PASO 4 — Presupuesto
-Solo después de tener los pasos 2 y 3, pregunta:
-"ya tienes un rango de inversión en mente o prefieres que un asesor experto te oriente con eso?"
+El sistema manda automáticamente los botones de presupuesto después de compra/renta. Cuando el cliente responda, ya tendrás ese dato en "LO QUE YA SABES". No preguntes por presupuesto en texto.
 
 PASO 5 — Correo
 Solo cuando ya tienes nombre, compra/renta, vivir/invertir y presupuesto. Manda SOLO esto:
@@ -230,6 +229,50 @@ def send_whatsapp_help_buttons(to):
     ])
 
 
+def send_whatsapp_budget_list(to, tipo):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    if tipo == "rentar":
+        body = "ya tienes un rango de renta en mente?"
+        rows = [
+            {"id": "presup_menos15", "title": "Menos de 15 mil"},
+            {"id": "presup_15_25",   "title": "15 a 25 mil"},
+            {"id": "presup_25_35",   "title": "25 a 35 mil"},
+            {"id": "presup_35_45",   "title": "35 a 45 mil"},
+            {"id": "presup_50mas",   "title": "50 mil o más"},
+            {"id": "presup_asesor",  "title": "Lo platico con asesor"},
+        ]
+    else:
+        body = "ya tienes un rango de inversión en mente?"
+        rows = [
+            {"id": "presup_menos3m", "title": "Menos de 3 millones"},
+            {"id": "presup_3_4m",    "title": "3.5 a 4.5 millones"},
+            {"id": "presup_4_5m",    "title": "4.5 a 5.5 millones"},
+            {"id": "presup_6_7m",    "title": "6.5 a 7.5 millones"},
+            {"id": "presup_8mas",    "title": "Más de 8 millones"},
+            {"id": "presup_asesor",  "title": "Lo platico con asesor"},
+        ]
+
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": body},
+            "action": {
+                "button": "Ver rangos",
+                "sections": [{"title": "Selecciona un rango", "rows": rows}]
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp budget list: {response.status_code} - {response.text}")
+
+
 def cancel_followup(phone_number):
     if phone_number in follow_up_jobs:
         try:
@@ -331,40 +374,60 @@ def receive_message():
         cancel_followup(phone_number)
 
         if msg_type == "interactive":
-            button_id = message["interactive"]["button_reply"]["id"]
-            button_title = message["interactive"]["button_reply"]["title"]
+            interactive_type = message["interactive"].get("type")
             pending_decision.pop(phone_number, None)
-            print(f"[{phone_number}] Botón: {button_id}")
 
-            if button_id == "agendar_llamada":
-                send_whatsapp_calendly_button(phone_number)
-                schedule_followup(phone_number)
-                return "OK", 200
+            # Respuesta de lista de presupuesto
+            if interactive_type == "list_reply":
+                list_id    = message["interactive"]["list_reply"]["id"]
+                list_title = message["interactive"]["list_reply"]["title"]
+                print(f"[{phone_number}] Lista: {list_id}")
+                client_data.setdefault(phone_number, {})
 
-            elif button_id == "por_whatsapp":
-                send_whatsapp_message(
-                    phone_number,
-                    "en breve te escribe uno de nuestros asesores expertos. fue un gusto platicar contigo"
-                )
-                return "OK", 200
+                if list_id == "presup_asesor":
+                    client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
+                    user_message = "prefiero platicarlo con el asesor"
+                else:
+                    client_data[phone_number]["presupuesto"] = list_title
+                    user_message = list_title
 
-            elif button_id == "agendar_asesor":
-                send_whatsapp_calendly_button(phone_number)
-                schedule_followup(phone_number)
-                return "OK", 200
+            # Respuesta de botón
+            else:
+                button_id    = message["interactive"]["button_reply"]["id"]
+                button_title = message["interactive"]["button_reply"]["title"]
+                print(f"[{phone_number}] Botón: {button_id}")
 
-            elif button_id == "tengo_duda":
-                send_whatsapp_message(phone_number, "cuéntame, en qué te puedo ayudar?")
-                return "OK", 200
+                if button_id == "agendar_llamada":
+                    send_whatsapp_calendly_button(phone_number)
+                    schedule_followup(phone_number)
+                    return "OK", 200
 
-            # Botones de decisión — guardar dato y continuar con GPT
-            if phone_number not in client_data:
-                client_data[phone_number] = {}
-            if button_id in ("para_vivir", "para_invertir"):
-                client_data[phone_number]["intencion"] = button_title
-            elif button_id in ("comprar", "rentar"):
-                client_data[phone_number]["tipo"] = button_title
-            user_message = button_title
+                elif button_id == "por_whatsapp":
+                    send_whatsapp_message(
+                        phone_number,
+                        "en breve te escribe uno de nuestros asesores expertos. fue un gusto platicar contigo"
+                    )
+                    return "OK", 200
+
+                elif button_id == "agendar_asesor":
+                    send_whatsapp_calendly_button(phone_number)
+                    schedule_followup(phone_number)
+                    return "OK", 200
+
+                elif button_id == "tengo_duda":
+                    send_whatsapp_message(phone_number, "cuéntame, en qué te puedo ayudar?")
+                    return "OK", 200
+
+                # Botones de decisión — guardar dato
+                client_data.setdefault(phone_number, {})
+                if button_id in ("para_vivir", "para_invertir"):
+                    client_data[phone_number]["intencion"] = button_title
+                elif button_id in ("comprar", "rentar"):
+                    client_data[phone_number]["tipo"] = button_title
+                    send_whatsapp_budget_list(phone_number, button_id)
+                    return "OK", 200
+
+                user_message = button_title
 
         elif msg_type == "text":
             user_message = message["text"]["body"]
@@ -414,6 +477,8 @@ def receive_message():
                 conocido.append(f"- Ya dijo que es {datos['intencion']} (NO vuelvas a preguntar esto)")
             if "tipo" in datos:
                 conocido.append(f"- Ya dijo que quiere {datos['tipo']} (NO vuelvas a preguntar esto)")
+            if "presupuesto" in datos:
+                conocido.append(f"- Presupuesto: {datos['presupuesto']} (NO vuelvas a preguntar esto, ve al PASO 5)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
         response = openai.chat.completions.create(
