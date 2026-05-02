@@ -19,6 +19,7 @@ client_names = {}
 pending_decision = {}  # clientes que vieron los botones pero no han decidido
 ad_context = {}        # contexto del anuncio por el que llegó el lead
 waiting_for_email = set()  # números esperando que el cliente dé su correo
+client_data = {}       # datos ya capturados por cliente {intencion, tipo}
 
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -356,7 +357,13 @@ def receive_message():
                 send_whatsapp_message(phone_number, "cuéntame, en qué te puedo ayudar?")
                 return "OK", 200
 
-            # Botones de decisión (comprar/rentar, vivir/invertir) — continúan conversación con GPT
+            # Botones de decisión — guardar dato y continuar con GPT
+            if phone_number not in client_data:
+                client_data[phone_number] = {}
+            if button_id in ("para_vivir", "para_invertir"):
+                client_data[phone_number]["intencion"] = button_title
+            elif button_id in ("comprar", "rentar"):
+                client_data[phone_number]["tipo"] = button_title
             user_message = button_title
 
         elif msg_type == "text":
@@ -399,6 +406,15 @@ def receive_message():
         system = SYSTEM_PROMPT
         if ad_context.get(phone_number):
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+
+        datos = client_data.get(phone_number, {})
+        if datos:
+            conocido = []
+            if "intencion" in datos:
+                conocido.append(f"- Ya dijo que es {datos['intencion']} (NO vuelvas a preguntar esto)")
+            if "tipo" in datos:
+                conocido.append(f"- Ya dijo que quiere {datos['tipo']} (NO vuelvas a preguntar esto)")
+            system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
         response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
