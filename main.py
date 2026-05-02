@@ -16,10 +16,11 @@ conversation_history = {}
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
-pending_decision = {}  # clientes que vieron los botones pero no han decidido
-ad_context = {}        # contexto del anuncio por el que llegó el lead
-waiting_for_email = set()  # números esperando que el cliente dé su correo
-client_data = {}       # datos ya capturados por cliente {intencion, tipo}
+pending_decision = {}   # clientes que vieron los botones pero no han decidido
+ad_context = {}         # contexto del anuncio por el que llegó el lead
+waiting_for_email = set()   # números esperando correo
+waiting_for_ciudad = set()  # números esperando ciudad de origen
+client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -75,19 +76,24 @@ No preguntes nada más hasta recibir respuesta.
 PASO 4 — Presupuesto
 El sistema manda los botones automáticamente. Cuando el cliente responda tendrás ese dato en "LO QUE YA SABES". No preguntes presupuesto en texto.
 
-PASO 5 — Correo
-Solo cuando tienes nombre, vivir/invertir, compra/renta y presupuesto. Manda SOLO esto:
+PASO 5 — Ciudad de origen
+Solo cuando tienes nombre, vivir/invertir, compra/renta y presupuesto. Pregunta en texto, sin botones:
+"ya vives en Mérida o de dónde te mudas?"
+Espera la respuesta antes de continuar.
+
+PASO 6 — Correo
+Solo cuando tienes todo lo anterior. Manda SOLO esto:
 "con lo que me cuentas voy a crear tu ficha para pasarte con el asesor que mejor se adapte a tu búsqueda. me compartes tu correo?"
 No agregues nada más. Espera el correo.
 
-PASO 6 — Decisión de contacto
-ÚNICAMENTE después de recibir el correo:
-"listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres por WhatsApp también podemos. que te va mejor?"
-MANDAR_BOTONES_CONTACTO
+PASO 7 — Confirmar ficha y decisión de contacto
+ÚNICAMENTE después de recibir el correo. Redacta un resumen natural y cálido de la ficha del cliente usando lo que sabes (nombre, vivir/invertir, compra/renta, presupuesto, ciudad de origen) y luego pregunta cómo prefiere el contacto. Ejemplo de tono:
+"[nombre], ya tengo todo listo. buscas [comprar/rentar] para [vivir/invertir] en Mérida, vienes de [ciudad] y tu presupuesto es [rango]. te voy a pasar con el asesor ideal para ti. las llamadas son más eficientes, puedes agendar en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?"
+Luego agrega: MANDAR_BOTONES_CONTACTO
 
 REGLAS DE CONVERSACIÓN:
 Si el cliente menciona una preocupación o divaga — reconócela en UNA oración corta y regresa al paso en curso. No profundices.
-Si ya tienes la ficha completa (nombre, vivir/invertir, compra/renta, presupuesto, correo) y el cliente hace una pregunta o comentario, llámalo por su nombre y responde brevemente, luego pregunta: "hay algo más en lo que te pueda ayudar?"
+Si ya tienes la ficha completa (todos los pasos) y el cliente hace una pregunta, llámalo por su nombre, responde brevemente y pregunta: "hay algo más en lo que te pueda ayudar?"
 Nunca hagas dos preguntas seguidas. Nunca saltes un paso.
 
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
@@ -452,6 +458,10 @@ def receive_message():
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
+            if phone_number in waiting_for_ciudad:
+                waiting_for_ciudad.discard(phone_number)
+                client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
+
             if phone_number in waiting_for_email:
                 if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
                     waiting_for_email.discard(phone_number)
@@ -481,6 +491,8 @@ def receive_message():
                 conocido.append(f"- Ya dijo que quiere {datos['tipo']} (NO vuelvas a preguntar esto)")
             if "presupuesto" in datos:
                 conocido.append(f"- Presupuesto: {datos['presupuesto']} (NO vuelvas a preguntar esto, ve al PASO 5)")
+            if "ciudad" in datos:
+                conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto, ve al PASO 6)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
         response = openai.chat.completions.create(
@@ -509,7 +521,10 @@ def receive_message():
                     fn(phone_number)
                     return
             send_whatsapp_message(phone_number, reply_text)
-            if "me compartes tu correo" in reply_text.lower():
+            low = reply_text.lower()
+            if "de dónde te mudas" in low or "ya vives en mérida" in low:
+                waiting_for_ciudad.add(phone_number)
+            if "me compartes tu correo" in low:
                 waiting_for_email.add(phone_number)
 
         dispatch_reply(reply)
