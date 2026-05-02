@@ -16,11 +16,12 @@ conversation_history = {}
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
-pending_decision = {}   # clientes que vieron los botones pero no han decidido
-ad_context = {}         # contexto del anuncio por el que llegó el lead
+pending_decision = {}        # clientes que vieron los botones pero no han decidido
+ad_context = {}              # contexto del anuncio por el que llegó el lead
 waiting_for_email = set()          # números esperando correo
 waiting_for_ciudad = set()         # números esperando ciudad de origen
 waiting_for_supplier_info = set()  # proveedores esperando dar su info
+waiting_for_asesor_topic = set()   # clientes a los que se les preguntó el tema para el asesor
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -113,9 +114,9 @@ No hagas más preguntas. Espera que el proveedor responda con su info.
 Cuando el proveedor responda con su información, agradece con calidez y cierra la conversación.
 
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
-Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde con calidez y agrega al final: MANDAR_BOTONES_ASESOR
-Ejemplo: "hay mucho en lo que te puedo ayudar, y puedo conectarte con un asesor cuando quieras."
-MANDAR_BOTONES_ASESOR
+Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde exactamente así, sin cambiar nada:
+"Hay mucho en lo que te puedo ayudar, y puedo conectarte con un asesor cuando quieras. Cual es el tema que te gustaria hablar con el asesor?"
+Luego agrega al final: PREGUNTAR_TEMA_ASESOR
 
 CONTEXTO DE MÉRIDA QUE PUEDES USAR:
 - El norte es lo más buscado: Temozón Norte, Cholul, Santa Gertrudis Copó, Montebello, Conkal
@@ -298,6 +299,19 @@ def send_whatsapp_budget_list(to, tipo):
     print(f"WhatsApp budget list: {response.status_code} - {response.text}")
 
 
+def reset_conversation(phone_number):
+    conversation_history.pop(phone_number, None)
+    client_data.pop(phone_number, None)
+    client_names.pop(phone_number, None)
+    ad_context.pop(phone_number, None)
+    pending_decision.pop(phone_number, None)
+    waiting_for_email.discard(phone_number)
+    waiting_for_ciudad.discard(phone_number)
+    waiting_for_supplier_info.discard(phone_number)
+    waiting_for_asesor_topic.discard(phone_number)
+    cancel_followup(phone_number)
+
+
 def cancel_followup(phone_number):
     if phone_number in follow_up_jobs:
         try:
@@ -398,10 +412,10 @@ def receive_message():
         # Client is active — cancel any pending follow-up
         cancel_followup(phone_number)
 
-        # Proveedores: bloquear acceso a asesores
+        # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
-            send_whatsapp_message(phone_number,
-                "este canal es exclusivo para búsqueda inmobiliaria. para hablar con el equipo de TRES65 sobre proveedores, escríbenos a nuestro correo oficial.")
+            reset_conversation(phone_number)
+            send_whatsapp_message(phone_number, "con gusto te ayudo. con quién tengo el gusto? (nombre completo por favor)")
             return "OK", 200
 
         if msg_type == "interactive":
@@ -475,12 +489,17 @@ def receive_message():
             if phone_number in waiting_for_supplier_info:
                 asesor_keywords = ["asesor", "hablar con", "quiero hablar", "contactar", "persona", "humano", "ejecutivo"]
                 if any(k in user_message.lower() for k in asesor_keywords):
-                    send_whatsapp_message(phone_number,
-                        "este canal es exclusivo para búsqueda inmobiliaria. para hablar con el equipo sobre proveedores, escríbenos a nuestro correo oficial.")
+                    reset_conversation(phone_number)
+                    send_whatsapp_message(phone_number, "con gusto te ayudo. con quién tengo el gusto? (nombre completo por favor)")
                 else:
                     waiting_for_supplier_info.discard(phone_number)
                     send_whatsapp_message(phone_number,
                         "Muchas gracias, ya quedó guardado. En cuanto lo necesitemos nos ponemos en contacto. Que tengas excelente día!")
+                return "OK", 200
+
+            if phone_number in waiting_for_asesor_topic:
+                waiting_for_asesor_topic.discard(phone_number)
+                send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
             if any(k in user_message.lower() for k in proveedor_keywords):
@@ -568,10 +587,9 @@ def receive_message():
 
         def dispatch_reply(reply_text):
             tokens = {
-                "MANDAR_BOTONES_CONTACTO": send_whatsapp_contact_buttons,
+                "MANDAR_BOTONES_CONTACTO":      send_whatsapp_contact_buttons,
                 "MANDAR_BOTONES_COMPRAR_RENTAR": send_whatsapp_comprar_rentar_buttons,
                 "MANDAR_BOTONES_VIVIR_INVERTIR": send_whatsapp_vivir_invertir_buttons,
-                "MANDAR_BOTONES_ASESOR": send_whatsapp_help_buttons,
             }
             for token, fn in tokens.items():
                 if token in reply_text:
@@ -580,6 +598,12 @@ def receive_message():
                         send_whatsapp_message(phone_number, text_part)
                     fn(phone_number)
                     return
+            if "PREGUNTAR_TEMA_ASESOR" in reply_text:
+                text_part = reply_text.replace("PREGUNTAR_TEMA_ASESOR", "").strip()
+                if text_part:
+                    send_whatsapp_message(phone_number, text_part)
+                waiting_for_asesor_topic.add(phone_number)
+                return
             send_whatsapp_message(phone_number, reply_text)
             low = reply_text.lower()
             if "de dónde te mudas" in low or "ya vives en mérida" in low:
