@@ -1,6 +1,7 @@
 from flask import Flask, request
 import openai
 import os
+import re
 import requests
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -17,6 +18,7 @@ follow_up_jobs = {}
 client_names = {}
 pending_decision = {}  # clientes que vieron los botones pero no han decidido
 ad_context = {}        # contexto del anuncio por el que llegó el lead
+waiting_for_email = set()  # números esperando que el cliente dé su correo
 
 scheduler = BackgroundScheduler()
 scheduler.start()
@@ -378,6 +380,13 @@ def receive_message():
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
+            if phone_number in waiting_for_email:
+                if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
+                    waiting_for_email.discard(phone_number)
+                else:
+                    send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
+                    return "OK", 200
+
         else:
             return "OK", 200
 
@@ -417,6 +426,8 @@ def receive_message():
                     fn(phone_number)
                     return
             send_whatsapp_message(phone_number, reply_text)
+            if "me compartes tu correo" in reply_text.lower():
+                waiting_for_email.add(phone_number)
 
         dispatch_reply(reply)
 
