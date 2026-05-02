@@ -100,10 +100,11 @@ Si el cliente menciona una preocupación — reconócela en una oración y regre
 Si ya tienes la ficha completa y el cliente hace una pregunta, llámalo por su nombre, responde con personalidad y pregunta: "hay algo más en lo que te pueda ayudar?"
 Nunca hagas dos preguntas seguidas. Nunca saltes un paso del flujo.
 
-CUANDO ALGUIEN OFRECE UN SERVICIO O ES PROVEEDOR:
-Si alguien menciona que ofrece un servicio, producto, es proveedor, constructor, desarrollador, agente, o viene a vender algo — manda EXACTAMENTE este mensaje, sin cambiar nada:
-"Gracias por contactarnos! Aunque este no es el canal indicado, nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos en un solo mensaje la siguiente información en este orden:
+CUANDO ALGUIEN OFRECE UN SERVICIO, ES PROVEEDOR O BUSCA TRABAJO:
+Si alguien menciona que ofrece un servicio, producto, es proveedor, constructor, desarrollador, agente, viene a vender algo, busca trabajo, quiere aplicar a una posición o menciona reclutamiento — manda EXACTAMENTE este mensaje, sin cambiar nada:
+"Gracias por contactarnos. Aunque este no es el canal indicado, nos da mucho gusto recibir propuestas. Para guardarte en nuestra carpeta de proveedores/reclutamiento, compártenos en un solo mensaje la siguiente información en este orden:
 
+*Para proveedores:*
 Nombre de la compañía:
 Tipo de servicio:
 Zonas que cubren:
@@ -111,9 +112,16 @@ Correo:
 Redes sociales:
 Teléfono de contacto:
 
-Así lo tenemos todo listo para cuando lo necesitemos."
-No hagas más preguntas. Espera que el proveedor responda con su info.
-Cuando el proveedor responda con su información, agradece con calidez y cierra la conversación.
+*Reclutamiento:*
+Nombre completo:
+Edad:
+Posición que te interesa:
+Tienes experiencia en el ámbito inmobiliario:
+Teléfono de contacto:
+
+Así lo tenemos todo listo para cuando lo necesitemos. Gracias!"
+No hagas más preguntas. Espera que respondan con su info.
+Cuando respondan con su información, agradece con calidez y cierra la conversación.
 
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
 Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde exactamente así, sin cambiar nada:
@@ -504,18 +512,28 @@ def receive_message():
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
-            if any(k in user_message.lower() for k in proveedor_keywords):
+            reclutamiento_keywords = ["busco trabajo", "quiero trabajar", "me interesa trabajar",
+                                       "aplicar", "vacante", "puesto", "empleo", "curriculum", "cv",
+                                       "me gustaria formar parte", "quiero ser parte"]
+            if any(k in user_message.lower() for k in proveedor_keywords + reclutamiento_keywords):
                 SUPPLIER_MSG = (
-                    "Gracias por contactarnos! Aunque este no es el canal indicado, nos da mucho gusto "
-                    "recibir propuestas. Para guardarte en nuestra carpeta de proveedores, compártenos "
-                    "en un solo mensaje la siguiente información en este orden:\n\n"
+                    "Gracias por contactarnos. Aunque este no es el canal indicado, nos da mucho gusto "
+                    "recibir propuestas. Para guardarte en nuestra carpeta de proveedores/reclutamiento, "
+                    "compártenos en un solo mensaje la siguiente información en este orden:\n\n"
+                    "*Para proveedores:*\n"
                     "Nombre de la compañía:\n"
                     "Tipo de servicio:\n"
                     "Zonas que cubren:\n"
                     "Correo:\n"
                     "Redes sociales:\n"
                     "Teléfono de contacto:\n\n"
-                    "Así lo tenemos todo listo para cuando lo necesitemos."
+                    "*Reclutamiento:*\n"
+                    "Nombre completo:\n"
+                    "Edad:\n"
+                    "Posición que te interesa:\n"
+                    "Tienes experiencia en el ámbito inmobiliario:\n"
+                    "Teléfono de contacto:\n\n"
+                    "Así lo tenemos todo listo para cuando lo necesitemos. Gracias!"
                 )
                 send_whatsapp_message(phone_number, SUPPLIER_MSG)
                 waiting_for_supplier_info.add(phone_number)
