@@ -64,8 +64,8 @@ Escribes exactamente como un mexicano real en WhatsApp.
 
 FLUJO OBLIGATORIO — sigue este orden sin saltarte pasos:
 
-PASO 1 — Nombre
-Si no tienes el nombre del cliente, es lo ÚNICO que preguntas. No importa lo que diga el cliente en su primer mensaje — si no sabes su nombre, solo pregúntalo. Nada más.
+PASO 1 — Nombre (PRIORIDAD ABSOLUTA)
+Si no tienes el nombre del cliente, esta regla anula TODAS las demás sin excepción. No importa si el cliente pide un asesor, hace una pregunta, o dice cualquier otra cosa — si no tienes su nombre, tu única respuesta es pedirlo. Nada más. Ni asesor, ni botones, ni información de Mérida.
 
 PASO 2 — Vivir o invertir
 En cuanto tengas el nombre, responde con una frase corta y cálida (ej: "qué emocionante estar en esta búsqueda contigo") y agrega al final EXACTAMENTE: MANDAR_BOTONES_VIVIR_INVERTIR
@@ -124,6 +124,7 @@ No hagas más preguntas. Espera que respondan con su info.
 Cuando respondan con su información, agradece con calidez y cierra la conversación.
 
 CUANDO EL CLIENTE PIDE HABLAR CON UN ASESOR:
+Esta regla solo aplica si ya tienes el nombre del cliente (PASO 1 completado).
 Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde exactamente así, sin cambiar nada:
 "Hay mucho en lo que te puedo ayudar, y puedo conectarte con un asesor cuando quieras. Cual es el tema que te gustaria hablar con el asesor?"
 Luego agrega al final: PREGUNTAR_TEMA_ASESOR
@@ -571,6 +572,8 @@ def receive_message():
         else:
             return "OK", 200
 
+        is_first_message = phone_number not in conversation_history or len(conversation_history[phone_number]) == 0
+
         if phone_number not in conversation_history:
             conversation_history[phone_number] = []
 
@@ -578,6 +581,8 @@ def receive_message():
         history.append({"role": "user", "content": user_message})
 
         system = SYSTEM_PROMPT
+        if is_first_message:
+            system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre. NADA MÁS. Ignora el contenido del mensaje del cliente."
         if ad_context.get(phone_number):
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
 
