@@ -561,6 +561,15 @@ def receive_message():
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
+            # Saludo en conversación existente
+            saludos = {"hola", "hello", "hey", "buenas", "buenos días", "buenos dias",
+                       "buen día", "buen dia", "buenas tardes", "buenas noches", "hi", "ey"}
+            if user_message.strip().lower() in saludos and phone_number in conversation_history and len(conversation_history[phone_number]) > 0:
+                name = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre")
+                greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
+                send_whatsapp_message(phone_number, greeting)
+                return "OK", 200
+
             if phone_number in waiting_for_ciudad:
                 waiting_for_ciudad.discard(phone_number)
                 client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
