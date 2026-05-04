@@ -22,6 +22,7 @@ waiting_for_email = set()          # números esperando correo
 waiting_for_ciudad = set()         # números esperando ciudad de origen
 waiting_for_supplier_info = set()  # proveedores esperando dar su info
 waiting_for_asesor_topic = set()   # clientes a los que se les preguntó el tema para el asesor
+algo_mas_mode = set()              # clientes en flujo exploratorio (no el paso a paso estándar)
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -320,6 +321,7 @@ def reset_conversation(phone_number):
     waiting_for_ciudad.discard(phone_number)
     waiting_for_supplier_info.discard(phone_number)
     waiting_for_asesor_topic.discard(phone_number)
+    algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
 
 
@@ -477,6 +479,7 @@ def receive_message():
                 # Botones de decisión — guardar dato
                 client_data.setdefault(phone_number, {})
                 if button_id == "algo_mas":
+                    algo_mas_mode.add(phone_number)
                     send_whatsapp_message(phone_number, "con gusto te ayudo. cuéntame, qué estás buscando?")
                     return "OK", 200
 
@@ -583,6 +586,23 @@ def receive_message():
         system = SYSTEM_PROMPT
         if is_first_message:
             system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre. NADA MÁS. Ignora el contenido del mensaje del cliente."
+
+        if phone_number in algo_mas_mode:
+            system += """
+
+MODO EXPLORATORIO — este cliente tiene una necesidad especial, no el flujo estándar.
+NO uses el paso a paso. NO mandes botones de vivir/invertir ni comprar/rentar.
+Sé curiosa, cálida y abierta. Tu objetivo es entender QUÉ necesita exactamente y conectarlo con el asesor ideal.
+
+Si mencionan renta a corto plazo, estadía temporal, Airbnb o algo vacacional/de trabajo:
+- No des por hecho nada. Divaga un poco con calidez: "todo se puede en este mundo inmobiliario, cuéntame más de lo que buscas"
+- Pregunta UNA cosa a la vez: es de trabajo o vacacional? vienes solo o con más gente? amigos, familia? cuánto tiempo más o menos?
+- Si es vacacional: qué buscan — descansar, explorar, aventura?
+- Conecta siempre con Mérida: cenotes, gastronomía, cultura, seguridad, clima
+
+Cuando ya tengas suficiente contexto (2-3 mensajes), di:
+"con todo esto ya puedo pasarte con el asesor que mejor se adapta a lo que buscas. cómo prefieres que te contacte?"
+Luego agrega: MANDAR_BOTONES_CONTACTO"""
         if ad_context.get(phone_number):
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
 
