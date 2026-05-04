@@ -491,7 +491,17 @@ def receive_message():
                 button_title = message["interactive"]["button_reply"]["title"]
                 print(f"[{phone_number}] Botón: {button_id}")
 
-                if button_id == "agendar_llamada":
+                if button_id == "ficha_correcta":
+                    send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
+                    send_whatsapp_contact_buttons(phone_number)
+                    return "OK", 200
+
+                elif button_id == "ficha_incorrecta":
+                    waiting_for_ficha_correction.add(phone_number)
+                    send_whatsapp_message(phone_number, "dime qué dato está mal y lo corrijo ahora mismo")
+                    return "OK", 200
+
+                elif button_id == "agendar_llamada":
                     send_whatsapp_calendly_button(phone_number)
                     schedule_followup(phone_number)
                     return "OK", 200
