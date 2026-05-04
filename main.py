@@ -23,6 +23,7 @@ waiting_for_ciudad = set()         # números esperando ciudad de origen
 waiting_for_supplier_info = set()  # proveedores esperando dar su info
 waiting_for_asesor_topic = set()   # clientes a los que se les preguntó el tema para el asesor
 algo_mas_mode = set()              # clientes en flujo exploratorio (no el paso a paso estándar)
+waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -65,11 +66,12 @@ Escribes exactamente como un mexicano real en WhatsApp.
 
 FLUJO OBLIGATORIO — sigue este orden sin saltarte pasos:
 
-PASO 1 — Nombre (PRIORIDAD ABSOLUTA)
-Si no tienes el nombre del cliente, esta regla anula TODAS las demás sin excepción. No importa si el cliente pide un asesor, hace una pregunta, o dice cualquier otra cosa — si no tienes su nombre, tu única respuesta es pedirlo. Nada más. Ni asesor, ni botones, ni información de Mérida.
+PASO 1 — Nombre completo (PRIORIDAD ABSOLUTA)
+Si no tienes el nombre del cliente, esta regla anula TODAS las demás sin excepción. Tu única respuesta es pedirlo. Nada más.
+Necesitas nombre Y apellido. Si el cliente da solo una palabra (ej: "Moises"), pregunta el apellido: "y tu apellido?" — nada más. No avances al PASO 2 hasta tener los dos.
 
 PASO 2 — Vivir o invertir
-En cuanto tengas el nombre, responde EXACTAMENTE con esta frase (usando el primer nombre): "Mucho gusto [nombre]. y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo"
+En cuanto tengas nombre completo (nombre + apellido), responde EXACTAMENTE con esta frase (usando el primer nombre): "Mucho gusto [nombre]. y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo"
 Luego agrega al final EXACTAMENTE: MANDAR_BOTONES_VIVIR_INVERTIR
 No preguntes nada más hasta recibir respuesta.
 
@@ -90,10 +92,19 @@ Solo cuando tienes todo lo anterior. Manda SOLO esto:
 "con lo que me cuentas voy a crear tu ficha para pasarte con el asesor que mejor se adapte a tu búsqueda. me compartes tu correo?"
 No agregues nada más. Espera el correo.
 
-PASO 7 — Confirmar ficha y decisión de contacto
-ÚNICAMENTE después de recibir el correo. Redacta un resumen natural y cálido de la ficha del cliente usando lo que sabes (nombre, vivir/invertir, compra/renta, presupuesto, ciudad de origen) y luego pregunta cómo prefiere el contacto. Ejemplo de tono:
-"[nombre], ya tengo todo listo. buscas [comprar/rentar] para [vivir/invertir] en Mérida, vienes de [ciudad] y tu presupuesto es [rango]. te voy a pasar con el asesor ideal para ti. las llamadas son más eficientes, puedes agendar en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?"
-Luego agrega: MANDAR_BOTONES_CONTACTO
+PASO 7 — Confirmar ficha
+ÚNICAMENTE después de recibir el correo. Redacta la ficha completa con TODOS los datos en este formato exacto, incluyendo cualquier nota relevante de la conversación (preocupaciones, preferencias, contexto):
+
+Nombre: [nombre completo]
+Teléfono: (vía WhatsApp)
+Correo: [correo]
+Tipo: [Compra / Renta]
+Uso: [Para vivir / Para invertir]
+Presupuesto: [rango]
+Viene de: [ciudad]
+Notas: [máximo 1 línea con contexto relevante, o "Sin notas" si no hay nada extra]
+
+Luego agrega al final EXACTAMENTE: CONFIRMAR_FICHA
 
 REGLAS DE CONVERSACIÓN:
 Si el cliente hace una pregunta random, curiosa o inesperada — contéstala con personalidad y calidez, como lo haría un mexicano que conoce bien Mérida. Luego conecta la respuesta de forma natural con Mérida, la vida aquí, o la búsqueda de propiedad. No ignores la pregunta ni la cortes — eso se siente robótico.
@@ -259,6 +270,30 @@ def send_whatsapp_vivir_invertir_buttons(to):
         {"id": "para_invertir", "title": "Para invertir"},
         {"id": "algo_mas",      "title": "Algo más"}
     ])
+
+
+def send_whatsapp_ficha_confirmation(to, ficha_text):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": ficha_text},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": "ficha_correcta",   "title": "Todo correcto"}},
+                    {"type": "reply", "reply": {"id": "ficha_incorrecta", "title": "Algo está mal"}}
+                ]
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp ficha confirmation: {response.status_code} - {response.text}")
 
 
 def send_whatsapp_help_buttons(to):
