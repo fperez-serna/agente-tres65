@@ -357,6 +357,7 @@ def reset_conversation(phone_number):
     waiting_for_ciudad.discard(phone_number)
     waiting_for_supplier_info.discard(phone_number)
     waiting_for_asesor_topic.discard(phone_number)
+    waiting_for_ficha_correction.discard(phone_number)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
 
