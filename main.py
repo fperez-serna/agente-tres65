@@ -651,25 +651,31 @@ def receive_message():
         if phone_number in algo_mas_mode:
             system += """
 
-MODO EXPLORATORIO — este cliente tiene una necesidad especial, no el flujo estándar.
-NO uses el paso a paso. NO mandes botones de vivir/invertir ni comprar/rentar.
-Sé curiosa, cálida y abierta. Tu objetivo es entender QUÉ necesita exactamente y conectarlo con el asesor ideal.
+MODO EXPLORATORIO — este cliente tiene una necesidad especial o no tiene claro lo que busca.
+NO uses el paso a paso estándar. NO mandes botones de vivir/invertir ni comprar/rentar.
+Sé comprensiva, cálida y paciente. Tu objetivo es entender su situación y guiarlos con calidez.
 
-Si mencionan subarrendar, subarrendamiento, renta a corto plazo, Airbnb, plataformas de renta o algo vacacional/de trabajo:
-- Responde con esta energía: "todo se puede en este mundo inmobiliario mientras se establezcan bien las cosas en el contrato, cuéntame más de lo que buscas. es para renta a corto plazo para Airbnb u otra plataforma?"
-- Pregunta UNA cosa a la vez: es de trabajo o vacacional? vienes solo o con más gente? amigos, familia? cuánto tiempo más o menos?
-- Si es vacacional: qué buscan — descansar, explorar, aventura?
-- Conecta siempre con Mérida: cenotes, gastronomía, cultura, seguridad, clima
-- Usa el nombre del cliente de forma natural cuando lo tengas
+SI NO SABEN SI RENTAR O COMPRAR:
+- Sé comprensiva: es completamente normal no tener claro. Primero pregunta: "ya vives en Mérida o vienes de fuera?"
 
-DATOS OBLIGATORIOS aunque sea modo exploratorio:
-1. Nombre — siempre primero, igual que el flujo normal
-2. Correo — cuando ya tengas contexto suficiente (2-3 mensajes), pide el correo antes de conectar con el asesor:
-   "para pasarte con el asesor ideal necesito tu correo. me lo compartes?"
-   Espera el correo antes de continuar.
-3. Después del correo, conecta con el asesor:
-   "listo, ya tengo todo. las llamadas son más eficientes pero si prefieres WhatsApp también podemos. que te va mejor?"
-   Luego agrega: MANDAR_BOTONES_CONTACTO"""
+SI VIVEN EN MÉRIDA:
+- Valida con calidez: comprar es un gran paso pero es una inversión a futuro muy valiosa.
+- Di algo como: "comprar puede sonar a mucho pero es una de las mejores inversiones que puedes hacer. un asesor de TRES65 te puede orientar aunque aún no tengas todo claro, para eso estamos."
+- Recoge: nombre completo, correo, en cuánto tiempo quisiera tomar una decisión o mudarse, presupuesto aproximado.
+
+SI VIENEN DE FUERA:
+- Valida con calidez: es muy común querer rentar primero para conocer la ciudad antes de comprar.
+- Di algo como: "muchos que llegan de fuera prefieren rentar primero para conocer bien las zonas, algunos incluso arrancan con una estadía corta tipo Airbnb. Mérida aunque está creciendo mucho sigue siendo muy fácil de descifrar, y con un asesor de TRES65 la decisión es mucho más guiada y eficiente."
+- Si mencionan subarrendar, Airbnb o renta a corto plazo: "todo se puede en este mundo inmobiliario mientras se establezcan bien las cosas en el contrato. es para Airbnb u otra plataforma de renta?"
+- Recoge: nombre completo, correo, de dónde vienen, tiempo de estancia o mudanza, presupuesto aproximado.
+
+DATOS OBLIGATORIOS en modo exploratorio:
+1. Nombre completo (nombre + apellido) — primero siempre
+2. Contexto de situación (vive en Mérida o viene de fuera)
+3. Correo
+4. Tiempo estimado de mudanza o decisión
+5. Presupuesto aproximado
+Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         if ad_context.get(phone_number):
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
 
@@ -685,6 +691,9 @@ DATOS OBLIGATORIOS aunque sea modo exploratorio:
             if "ciudad" in datos:
                 conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto, ve al PASO 6)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
+
+        if phone_number in waiting_for_ficha_correction:
+            system += "\n\nEl cliente acaba de corregir un dato de su ficha. Actualiza el dato, regenera la ficha completa con el formato del PASO 7 y agrega CONFIRMAR_FICHA al final."
 
         response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
