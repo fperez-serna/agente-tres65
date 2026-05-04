@@ -710,6 +710,10 @@ DATOS OBLIGATORIOS aunque sea modo exploratorio:
                         send_whatsapp_message(phone_number, text_part)
                     fn(phone_number)
                     return
+            if "CONFIRMAR_FICHA" in reply_text:
+                ficha_text = reply_text.replace("CONFIRMAR_FICHA", "").strip()
+                send_whatsapp_ficha_confirmation(phone_number, ficha_text)
+                return
             if "PREGUNTAR_TEMA_ASESOR" in reply_text:
                 text_part = reply_text.replace("PREGUNTAR_TEMA_ASESOR", "").strip()
                 if text_part:
