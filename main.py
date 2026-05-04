@@ -617,6 +617,11 @@ def receive_message():
                 send_whatsapp_message(phone_number, greeting)
                 return "OK", 200
 
+            if phone_number in waiting_for_ficha_correction:
+                waiting_for_ficha_correction.discard(phone_number)
+                # Deja que GPT actualice el dato correcto y regenere la ficha
+                user_message = f"corrección de ficha: {user_message}"
+
             if phone_number in waiting_for_ciudad:
                 waiting_for_ciudad.discard(phone_number)
                 client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
