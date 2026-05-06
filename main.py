@@ -19,6 +19,7 @@ client_names = {}
 pending_decision = {}        # clientes que vieron los botones pero no han decidido
 ad_context = {}              # contexto del anuncio por el que llegó el lead
 waiting_for_email = set()             # números esperando correo
+waiting_for_name = set()              # números esperando que den su nombre (después del saludo)
 waiting_for_apellido = set()          # números que dieron solo primer nombre
 waiting_for_ciudad = set()            # números esperando ciudad de origen
 waiting_for_supplier_info = set()     # proveedores esperando dar su info
@@ -61,15 +62,15 @@ Escribes exactamente como un mexicano real en WhatsApp.
 - Contracciones naturales: "no sé", "te cuento", "la neta", "depende mucho"
 - Si algo se puede decir en 5 palabras, no usas 10.
 - Tono: colega de confianza que sabe mucho de bienes raíces en Mérida.
-- NUNCA repitas el nombre del cliente en cada mensaje. Úsalo máximo una vez cada 4-5 mensajes.
-- Cuando uses el nombre del cliente, usa SOLO su primer nombre, nunca el apellido.
+- NUNCA uses el nombre del cliente más de una vez cada 6-8 mensajes. Si lo usaste hace poco, no lo uses. La mayoría de tus mensajes NO llevan el nombre.
+- Cuando uses el nombre, usa SOLO el primer nombre, nunca el apellido.
 - NUNCA empieces un mensaje con "Entendido", "Perfecto", "Claro", "Por supuesto", "Claro que sí" ni ninguna variación. Ve directo al punto.
 
 FLUJO OBLIGATORIO — sigue este orden sin saltarte pasos:
 
 PASO 1 — Nombre completo (PRIORIDAD ABSOLUTA)
 Si no tienes el nombre del cliente, esta regla anula TODAS las demás sin excepción. Tu única respuesta es pedirlo. Nada más.
-Necesitas nombre Y apellido. Si el cliente da solo una palabra (ej: "Moises"), pregunta el apellido: "y tu apellido?" — nada más. No avances al PASO 2 hasta tener los dos.
+El sistema detecta automáticamente si el cliente da solo el primer nombre y le pide el apellido. Cuando veas en el historial que ya tiene nombre Y apellido, avanza al PASO 2.
 
 PASO 2 — Vivir o invertir
 En cuanto tengas nombre completo (nombre + apellido), responde EXACTAMENTE con esta frase (usando el primer nombre): "Mucho gusto [nombre]. y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo"
@@ -151,6 +152,13 @@ Esta regla solo aplica si ya tienes el nombre del cliente (PASO 1 completado).
 Si dice "quiero hablar con un asesor", "necesito ayuda", "quiero hablar con alguien" o similar — responde exactamente así, sin cambiar nada:
 "Hay mucho en lo que te puedo ayudar, y puedo conectarte con un asesor cuando quieras. Cual es el tema que te gustaria hablar con el asesor?"
 Luego agrega al final: PREGUNTAR_TEMA_ASESOR
+
+CUANDO EL CLIENTE MENCIONA DE DÓNDE VIENE:
+Si mencionan que vienen de CDMX, Monterrey, Guadalajara u otra ciudad — responde con calidez y algo específico de esa ciudad. Ejemplos:
+- CDMX: "tenemos mucha gente que se está viniendo de allá, Mérida te va a encantar — el ritmo de vida es completamente diferente"
+- Monterrey: "los regios que llegan no se quieren ir, el clima y la tranquilidad hacen la diferencia"
+- Guadalajara: "mucho tapatío ha encontrado en Mérida esa combinación de ciudad activa pero sin el caos"
+Adapta según la ciudad. Hazlo natural, como si lo dijeras de verdad.
 
 CONTEXTO DE MÉRIDA QUE PUEDES USAR:
 - El norte es lo más buscado: Temozón Norte, Cholul, Santa Gertrudis Copó, Montebello, Conkal
@@ -364,6 +372,7 @@ def reset_conversation(phone_number):
     ad_context.pop(phone_number, None)
     pending_decision.pop(phone_number, None)
     waiting_for_email.discard(phone_number)
+    waiting_for_name.discard(phone_number)
     waiting_for_apellido.discard(phone_number)
     waiting_for_ciudad.discard(phone_number)
     waiting_for_supplier_info.discard(phone_number)
@@ -632,24 +641,22 @@ def receive_message():
                 waiting_for_ficha_correction.discard(phone_number)
                 user_message = f"corrección de ficha: {user_message}"
 
+            # Captura de nombre después del saludo
+            if phone_number in waiting_for_name:
+                waiting_for_name.discard(phone_number)
+                words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
+                if len(words) == 1:
+                    client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
+                    waiting_for_apellido.add(phone_number)
+                elif len(words) >= 2:
+                    client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip().title()
+
             # Guardar apellido cuando se pidió
-            if phone_number in waiting_for_apellido:
+            elif phone_number in waiting_for_apellido:
                 waiting_for_apellido.discard(phone_number)
                 existing = client_data.get(phone_number, {}).get("nombre_completo", "")
-                full_name = f"{existing} {user_message.strip()}".strip()
+                full_name = f"{existing} {user_message.strip().title()}".strip()
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
-                # Ahora sí tiene nombre completo — GPT puede avanzar al PASO 2
-
-            # Detectar si el primer nombre fue dado solo sin apellido (segunda respuesta — historial tiene 1 mensaje previo)
-            existing_history_len = len(conversation_history.get(phone_number, []))
-            if existing_history_len == 1 and phone_number not in client_data:
-                words = user_message.strip().split()
-                if 1 <= len(words) <= 2 and all(w.isalpha() for w in words):
-                    if len(words) == 1:
-                        client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip()
-                        waiting_for_apellido.add(phone_number)
-                    else:
-                        client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip()
 
             if phone_number in waiting_for_ciudad:
                 waiting_for_ciudad.discard(phone_number)
@@ -769,6 +776,9 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 waiting_for_email.add(phone_number)
 
         dispatch_reply(reply)
+
+        if is_first_message:
+            waiting_for_name.add(phone_number)
 
         last_maria_message_time[phone_number] = datetime.now()
         schedule_followup(phone_number)
