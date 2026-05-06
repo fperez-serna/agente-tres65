@@ -26,6 +26,7 @@ waiting_for_supplier_info = set()     # proveedores esperando dar su info
 waiting_for_asesor_topic = set()      # clientes a los que se les preguntó el tema para el asesor
 algo_mas_mode = set()                 # clientes en flujo exploratorio
 waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
+ficha_confirmada = set()              # clientes cuya ficha ya fue confirmada
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -378,6 +379,7 @@ def reset_conversation(phone_number):
     waiting_for_supplier_info.discard(phone_number)
     waiting_for_asesor_topic.discard(phone_number)
     waiting_for_ficha_correction.discard(phone_number)
+    ficha_confirmada.discard(phone_number)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
 
@@ -513,6 +515,7 @@ def receive_message():
                 print(f"[{phone_number}] Botón: {button_id}")
 
                 if button_id == "ficha_correcta":
+                    ficha_confirmada.add(phone_number)
                     send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
@@ -732,6 +735,9 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             if "ciudad" in datos:
                 conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto, ve al PASO 6)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
+
+        if phone_number in ficha_confirmada:
+            system += "\n\nLA FICHA DE ESTE CLIENTE YA FUE CONFIRMADA. Si en la conversación surge información nueva relevante (zona, recámaras, preferencias, preocupaciones, fechas, etc.), agrégala a las Notas, regenera la ficha completa actualizada con el mismo formato del PASO 7 y agrega CONFIRMAR_FICHA al final para que el cliente la vuelva a confirmar. Si el cliente solo platica sin dar info nueva, responde normal sin reenviar la ficha."
 
         if phone_number in waiting_for_ficha_correction:
             system += "\n\nEl cliente acaba de corregir un dato de su ficha. Actualiza el dato, regenera la ficha completa con el formato del PASO 7 y agrega CONFIRMAR_FICHA al final."
