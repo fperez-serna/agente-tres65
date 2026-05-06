@@ -106,7 +106,7 @@ PASO 7 — Confirmar ficha
 ÚNICAMENTE después de recibir el correo. Redacta la ficha completa con TODOS los datos en este formato exacto, incluyendo cualquier nota relevante de la conversación (preocupaciones, preferencias, contexto):
 
 Nombre: [nombre completo]
-Teléfono: (vía WhatsApp)
+Teléfono: [número del cliente — lo tienes en el contexto del sistema]
 Correo: [correo]
 Tipo: [Compra / Renta]
 Uso: [Para vivir / Para invertir]
@@ -717,6 +717,8 @@ DATOS OBLIGATORIOS en modo exploratorio:
 Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         if ad_context.get(phone_number):
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+
+        system += f"\n\nTELÉFONO DEL CLIENTE: +{phone_number} — usa este número exacto en el campo Teléfono de la ficha."
 
         datos = client_data.get(phone_number, {})
         if datos:
