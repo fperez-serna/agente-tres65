@@ -18,11 +18,12 @@ follow_up_jobs = {}
 client_names = {}
 pending_decision = {}        # clientes que vieron los botones pero no han decidido
 ad_context = {}              # contexto del anuncio por el que llegó el lead
-waiting_for_email = set()          # números esperando correo
-waiting_for_ciudad = set()         # números esperando ciudad de origen
-waiting_for_supplier_info = set()  # proveedores esperando dar su info
-waiting_for_asesor_topic = set()   # clientes a los que se les preguntó el tema para el asesor
-algo_mas_mode = set()              # clientes en flujo exploratorio (no el paso a paso estándar)
+waiting_for_email = set()             # números esperando correo
+waiting_for_apellido = set()          # números que dieron solo primer nombre
+waiting_for_ciudad = set()            # números esperando ciudad de origen
+waiting_for_supplier_info = set()     # proveedores esperando dar su info
+waiting_for_asesor_topic = set()      # clientes a los que se les preguntó el tema para el asesor
+algo_mas_mode = set()                 # clientes en flujo exploratorio
 waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
@@ -83,12 +84,20 @@ PASO 4 — Presupuesto
 El sistema manda los botones automáticamente. Cuando el cliente responda tendrás ese dato en "LO QUE YA SABES". No preguntes presupuesto en texto.
 
 PASO 5 — Ciudad de origen
-Solo cuando tienes nombre, vivir/invertir, compra/renta y presupuesto. Pregunta en texto, sin botones:
+Solo cuando tienes nombre, vivir/invertir, compra/renta y presupuesto. Pregunta en texto:
 "ya vives en Mérida o de dónde te mudas?"
 Espera la respuesta antes de continuar.
 
+PASO 5.5 — Contexto para notas (MUY IMPORTANTE, no te lo saltes)
+Después de saber de dónde viene, haz 1 o 2 preguntas naturales para enriquecer las notas. Elige las más relevantes según lo que ya sabes:
+- "ya tienes alguna zona en mente o todavía estás explorando?"
+- "es para ti solo, en pareja o para toda la familia?"
+- "más o menos cuántos cuartos necesitarías?"
+- "hay algo en especial que busques — alberca, jardín, amenidades, cerca de escuelas?"
+Haz máximo 2 preguntas, una a la vez. Este contexto va a las Notas de la ficha.
+
 PASO 6 — Correo
-Solo cuando tienes todo lo anterior. Manda SOLO esto:
+Solo cuando ya tienes el contexto de notas. Manda SOLO esto:
 "con lo que me cuentas voy a crear tu ficha para pasarte con el asesor que mejor se adapte a tu búsqueda. me compartes tu correo?"
 No agregues nada más. Espera el correo.
 
@@ -354,6 +363,7 @@ def reset_conversation(phone_number):
     ad_context.pop(phone_number, None)
     pending_decision.pop(phone_number, None)
     waiting_for_email.discard(phone_number)
+    waiting_for_apellido.discard(phone_number)
     waiting_for_ciudad.discard(phone_number)
     waiting_for_supplier_info.discard(phone_number)
     waiting_for_asesor_topic.discard(phone_number)
@@ -619,8 +629,25 @@ def receive_message():
 
             if phone_number in waiting_for_ficha_correction:
                 waiting_for_ficha_correction.discard(phone_number)
-                # Deja que GPT actualice el dato correcto y regenere la ficha
                 user_message = f"corrección de ficha: {user_message}"
+
+            # Guardar apellido cuando se pidió
+            if phone_number in waiting_for_apellido:
+                waiting_for_apellido.discard(phone_number)
+                existing = client_data.get(phone_number, {}).get("nombre_completo", "")
+                full_name = f"{existing} {user_message.strip()}".strip()
+                client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
+                # Ahora sí tiene nombre completo — GPT puede avanzar al PASO 2
+
+            # Detectar si el primer nombre fue dado solo sin apellido (primera respuesta al saludo)
+            if is_first_message is False and phone_number not in client_data and len(conversation_history.get(phone_number, [])) == 1:
+                words = user_message.strip().split()
+                if 1 <= len(words) <= 2 and all(w.isalpha() for w in words):
+                    if len(words) == 1:
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip()
+                        waiting_for_apellido.add(phone_number)
+                    else:
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip()
 
             if phone_number in waiting_for_ciudad:
                 waiting_for_ciudad.discard(phone_number)
@@ -647,6 +674,9 @@ def receive_message():
         system = SYSTEM_PROMPT
         if is_first_message:
             system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre. NADA MÁS. Ignora el contenido del mensaje del cliente."
+
+        if phone_number in waiting_for_apellido:
+            system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
 
         if phone_number in algo_mas_mode:
             system += """
