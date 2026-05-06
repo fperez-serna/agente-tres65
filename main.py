@@ -110,6 +110,7 @@ Correo: [correo]
 Tipo: [Compra / Renta]
 Uso: [Para vivir / Para invertir]
 Presupuesto: [rango]
+Zona: [zona mencionada, o "Por definir" si no se mencionó]
 Viene de: [ciudad]
 Notas: [máximo 1 línea con contexto relevante, o "Sin notas" si no hay nada extra]
 
