@@ -640,8 +640,9 @@ def receive_message():
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
                 # Ahora sí tiene nombre completo — GPT puede avanzar al PASO 2
 
-            # Detectar si el primer nombre fue dado solo sin apellido (primera respuesta al saludo)
-            if is_first_message is False and phone_number not in client_data and len(conversation_history.get(phone_number, [])) == 1:
+            # Detectar si el primer nombre fue dado solo sin apellido (segunda respuesta — historial tiene 1 mensaje previo)
+            existing_history_len = len(conversation_history.get(phone_number, []))
+            if existing_history_len == 1 and phone_number not in client_data:
                 words = user_message.strip().split()
                 if 1 <= len(words) <= 2 and all(w.isalpha() for w in words):
                     if len(words) == 1:
