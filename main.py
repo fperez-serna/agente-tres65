@@ -27,6 +27,7 @@ waiting_for_asesor_topic = set()      # clientes a los que se les preguntó el t
 algo_mas_mode = set()                 # clientes en flujo exploratorio
 waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
 ficha_confirmada = set()              # clientes cuya ficha ya fue confirmada
+last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
@@ -380,8 +381,35 @@ def reset_conversation(phone_number):
     waiting_for_asesor_topic.discard(phone_number)
     waiting_for_ficha_correction.discard(phone_number)
     ficha_confirmada.discard(phone_number)
+    last_ficha_text.pop(phone_number, None)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
+
+
+def send_zapier_ficha(phone_number):
+    zapier_url = os.environ.get("ZAPIER_WEBHOOK")
+    if not zapier_url:
+        return
+    datos = client_data.get(phone_number, {})
+    nombre_completo = datos.get("nombre_completo", "")
+    partes = nombre_completo.split()
+    payload = {
+        "telefono":        f"+{phone_number}",
+        "nombre":          partes[0] if partes else "",
+        "apellido":        " ".join(partes[1:]) if len(partes) > 1 else "",
+        "nombre_completo": nombre_completo,
+        "correo":          datos.get("correo", ""),
+        "tipo":            datos.get("tipo", ""),
+        "uso":             datos.get("intencion", ""),
+        "presupuesto":     datos.get("presupuesto", ""),
+        "ciudad":          datos.get("ciudad", ""),
+        "ficha_completa":  last_ficha_text.get(phone_number, ""),
+    }
+    try:
+        requests.post(zapier_url, json=payload, timeout=5)
+        print(f"[{phone_number}] Ficha enviada a Zapier")
+    except Exception as e:
+        print(f"[{phone_number}] Error Zapier: {e}")
 
 
 def cancel_followup(phone_number):
@@ -516,6 +544,7 @@ def receive_message():
 
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
+                    send_zapier_ficha(phone_number)
                     send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
@@ -668,6 +697,7 @@ def receive_message():
             if phone_number in waiting_for_email:
                 if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
                     waiting_for_email.discard(phone_number)
+                    client_data.setdefault(phone_number, {})["correo"] = user_message.strip()
                 else:
                     send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
                     return "OK", 200
@@ -768,6 +798,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                     return
             if "CONFIRMAR_FICHA" in reply_text:
                 ficha_text = reply_text.replace("CONFIRMAR_FICHA", "").strip()
+                last_ficha_text[phone_number] = ficha_text
                 send_whatsapp_ficha_confirmation(phone_number, ficha_text)
                 return
             if "PREGUNTAR_TEMA_ASESOR" in reply_text:
