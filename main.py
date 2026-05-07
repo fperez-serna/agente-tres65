@@ -543,7 +543,18 @@ def extract_entities(phone_number, text):
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     texto = f"Mucho gusto {primer_nombre}, y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo. Voy a hacerte unas preguntas para crear tu ficha, nos va a tomar un minuto. Es rápido."
     send_whatsapp_message(phone_number, texto)
-    send_whatsapp_vivir_invertir_buttons(phone_number)
+
+    datos = client_data.get(phone_number, {})
+
+    if not datos.get("intencion"):
+        send_whatsapp_vivir_invertir_buttons(phone_number)
+    elif not datos.get("tipo") and datos.get("intencion") == "Para vivir":
+        send_whatsapp_comprar_rentar_buttons(phone_number)
+    elif not datos.get("presupuesto"):
+        tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
+        send_whatsapp_budget_list(phone_number, tipo)
+    # Si ya tiene todo eso, GPT continúa con ciudad/notas/correo
+
     history = history_get(phone_number)
     history.append({"role": "user", "content": user_message_for_history})
     history.append({"role": "assistant", "content": texto})
