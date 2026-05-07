@@ -853,6 +853,11 @@ def chatwoot_webhook():
             return "OK", 200
 
         msg  = data.get("message", data)
+
+        # Ignorar notas privadas — no van al cliente
+        if msg.get("private", False):
+            return "OK", 200
+
         # Solo reenviar mensajes de agentes humanos (no del bot ni del sistema)
         sender_type = msg.get("sender", {}).get("type", "")
         if sender_type not in ("agent", "user"):
