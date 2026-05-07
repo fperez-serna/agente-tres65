@@ -1033,21 +1033,26 @@ def receive_message():
 
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
-                waiting_for_name.discard(phone_number)
                 words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
-                if len(words) == 1:
-                    client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
-                    save_nombre_redis(phone_number, words[0].capitalize())
-                    waiting_for_apellido.add(phone_number)
-                    send_whatsapp_message(phone_number, "y tu apellido?")
-                    return "OK", 200
-                elif len(words) >= 2:
-                    full = user_message.strip().title()
-                    client_data.setdefault(phone_number, {})["nombre_completo"] = full
-                    save_nombre_redis(phone_number, full)
-                    client_data_save(phone_number)
-                    _send_paso2(phone_number, words[0].capitalize(), user_message)
-                    return "OK", 200
+                # Solo tratar como nombre si el mensaje es corto (máximo 4 palabras)
+                if len(user_message.strip().split()) <= 4 and len(words) >= 1:
+                    waiting_for_name.discard(phone_number)
+                    if len(words) == 1:
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
+                        save_nombre_redis(phone_number, words[0].capitalize())
+                        waiting_for_apellido.add(phone_number)
+                        send_whatsapp_message(phone_number, "y tu apellido?")
+                        return "OK", 200
+                    else:
+                        full = " ".join(words[:3]).title()  # máximo 3 palabras como nombre
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = full
+                        save_nombre_redis(phone_number, full)
+                        client_data_save(phone_number)
+                        _send_paso2(phone_number, words[0].capitalize(), user_message)
+                        return "OK", 200
+                else:
+                    # Mensaje largo — GPT extrae el nombre y pre-detecta intención
+                    waiting_for_name.discard(phone_number)
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -1100,7 +1105,9 @@ def receive_message():
         system += f"\n\nHORA ACTUAL: Son las {hora_actual}:00 hrs — es de {momento}. Cuando te despidas o cierres un mensaje usa '{despedida}', nunca 'buen día' si es de tarde o noche."
 
         if is_first_message:
-            system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre. NADA MÁS. Ignora el contenido del mensaje del cliente."
+            system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
+        elif phone_number in waiting_for_name or (not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 3):
+            system += "\n\nINSTRUCCIÓN: El cliente acaba de dar su nombre y posiblemente más info. Extrae el nombre completo. Si mencionó intención (comprar/rentar/vivir/invertir), extráela también y avanza al paso correspondiente. Salúdalo por nombre y continúa el flujo natural sin volver a preguntar lo que ya dijo."
 
         if phone_number in waiting_for_apellido:
             system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
