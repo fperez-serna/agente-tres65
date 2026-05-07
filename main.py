@@ -191,7 +191,7 @@ ENTIDADES DE LA FICHA (en orden de prioridad):
 - intencion (vivir/invertir) → si no lo tienes, agrega MANDAR_BOTONES_VIVIR_INVERTIR
 - tipo (compra/renta) → solo si busca vivir y no lo tienes, agrega MANDAR_BOTONES_COMPRAR_RENTAR
 - presupuesto → el sistema manda botones automáticamente. No preguntes en texto.
-- ciudad → solo si busca vivir: "ya vives en Mérida o de dónde te mudas?"
+- ciudad → solo si busca vivir: "ya te encuentras en Mérida o de dónde te mudas?"
 - notas → 1-2 preguntas naturales de contexto (zona, cuartos, familia, algo especial)
 - correo → "con lo que me cuentas voy a crear tu ficha. me compartes tu correo?"
 - ficha → cuando tienes todo lo anterior, redáctala y agrega CONFIRMAR_FICHA
@@ -541,7 +541,8 @@ def extract_entities(phone_number, text):
             datos["tipo"] = "Rentar"
 
     if "ciudad" not in datos:
-        for marker in ["desde ", "vengo de ", "me mudo de ", "mudándome de ", "mudandome de ", "vivo en "]:
+        for marker in ["desde ", "vengo de ", "me mudo de ", "mudándome de ", "mudandome de ",
+                       "me vengo de ", "llego de ", "vivo en ", "actualmente en "]:
             if marker in low:
                 idx = low.index(marker) + len(marker)
                 words = text[idx:idx+40].split()
@@ -1338,7 +1339,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 return
             send_whatsapp_message(phone_number, reply_text)
             low = reply_text.lower()
-            if "de dónde te mudas" in low or "ya vives en mérida" in low:
+            if "ya te encuentras en mérida" in low or "de dónde te mudas" in low or "ya vives en mérida" in low:
                 waiting_for_ciudad.add(phone_number)
             if any(p in low for p in ["me compartes tu correo", "me das tu correo", "tu correo", "correo electrónico", "correo para", "comparte tu correo", "correo?"]):
                 waiting_for_email.add(phone_number)
