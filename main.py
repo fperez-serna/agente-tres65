@@ -637,9 +637,11 @@ def chatwoot_get_or_create_contact(phone_number, datos):
     r = requests.get(f"{base}/contacts/search",
                      params={"q": phone_number, "page": 1},
                      headers=_chatwoot_headers(), timeout=5)
-    results = r.json().get("payload", {}).get("contacts", []) if r.ok else []
-    if results:
-        return results[0]["id"]
+    if r.ok:
+        payload = r.json().get("payload", [])
+        contacts = payload if isinstance(payload, list) else payload.get("contacts", [])
+        if contacts:
+            return contacts[0]["id"]
     # Crear nuevo contacto
     payload = {
         "name":         nombre or phone_number,
