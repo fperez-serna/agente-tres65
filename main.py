@@ -863,17 +863,16 @@ def receive_message():
         elif msg_type == "text":
             user_message = message["text"]["body"]
 
-            # Palabra clave de prueba — dispara el template de 23h inmediatamente
+            # Palabras clave secretas — tienen prioridad absoluta sobre cualquier otro estado
+            if user_message.strip().lower() == "reset365":
+                reset_conversation(phone_number)
+                send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
+                return "OK", 200
+
             if user_message.strip().lower() == "test_followup365":
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
-                return "OK", 200
-
-            # Palabra clave secreta para reiniciar conversación
-            if user_message.strip().lower() == "reset365":
-                reset_conversation(phone_number)
-                send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
                 return "OK", 200
 
             # Detección de proveedor por keywords
