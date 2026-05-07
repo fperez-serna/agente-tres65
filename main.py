@@ -839,6 +839,16 @@ def receive_message():
                 waiting_for_ficha_correction.discard(phone_number)
                 user_message = f"corrección de ficha: {user_message}"
 
+            # Detectar negaciones en momentos clave
+            negaciones = {"no", "nop", "nel", "paso", "no quiero", "prefiero no",
+                          "no gracias", "no por ahora", "ahorita no", "después", "luego"}
+            es_negacion = user_message.strip().lower() in negaciones
+
+            if es_negacion and phone_number in (waiting_for_apellido | waiting_for_email | waiting_for_name):
+                send_whatsapp_message(phone_number,
+                    "entiendo, sin presión. es importante tener tu información completa para poder pasarte con el asesor experto que mejor se adapte a lo que buscas. cuando te sientas listo aquí voy a estar.")
+                return "OK", 200
+
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
                 waiting_for_name.discard(phone_number)
