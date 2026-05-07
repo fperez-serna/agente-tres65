@@ -926,10 +926,16 @@ def receive_message():
                 if button_id == "para_vivir":
                     client_data[phone_number]["intencion"] = button_title
                     client_data_save(phone_number)
-                    send_whatsapp_comprar_rentar_buttons(phone_number)
                     history = history_get(phone_number)
                     history.append({"role": "user", "content": button_title})
-                    history.append({"role": "assistant", "content": "tenemos opciones de todo tipo disponibles en Mérida. qué se adapta mejor a tu plan?"})
+                    if not client_data[phone_number].get("tipo"):
+                        send_whatsapp_comprar_rentar_buttons(phone_number)
+                        history.append({"role": "assistant", "content": "tenemos opciones de todo tipo disponibles en Mérida. qué se adapta mejor a tu plan?"})
+                    else:
+                        # Ya sabemos el tipo — mandar presupuesto directo
+                        tipo = "rentar" if client_data[phone_number].get("tipo", "").lower() == "rentar" else "comprar"
+                        send_whatsapp_budget_list(phone_number, tipo)
+                        history.append({"role": "assistant", "content": "ya tengo tu tipo de búsqueda. cuál es tu rango de presupuesto?"})
                     history_set(phone_number, history[-20:])
                     return "OK", 200
 
