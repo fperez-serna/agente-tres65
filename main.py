@@ -575,7 +575,19 @@ def send_zapier_ficha(phone_number):
     zapier_url = os.environ.get("ZAPIER_WEBHOOK")
     if not zapier_url:
         return
-    datos = client_data_load(phone_number)  # carga desde Redis si RAM está vacío
+    datos = client_data_load(phone_number)
+
+    # Fallback: extraer correo de la ficha si el campo estructurado está vacío
+    if not datos.get("correo"):
+        ficha = last_ficha_text.get(phone_number, "")
+        for line in ficha.splitlines():
+            if "correo:" in line.lower():
+                correo_val = line.split(":", 1)[-1].strip()
+                if "@" in correo_val:
+                    datos["correo"] = correo_val
+                    client_data.setdefault(phone_number, {})["correo"] = correo_val
+                    client_data_save(phone_number)
+                break
     nombre_completo = datos.get("nombre_completo", "")
     partes = nombre_completo.split()
     ctx = ad_context.get(phone_number, {})
@@ -1229,7 +1241,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             low = reply_text.lower()
             if "de dónde te mudas" in low or "ya vives en mérida" in low:
                 waiting_for_ciudad.add(phone_number)
-            if "me compartes tu correo" in low:
+            if any(p in low for p in ["me compartes tu correo", "me das tu correo", "tu correo", "correo electrónico", "correo para", "comparte tu correo", "correo?"]):
                 waiting_for_email.add(phone_number)
 
         dispatch_reply(reply)
