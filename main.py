@@ -1157,7 +1157,16 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         )
 
         reply = response.choices[0].message.content
-        history.append({"role": "assistant", "content": reply})
+
+        # Limpiar tokens antes de guardar en historial para que GPT no se confunda
+        all_tokens = ["MANDAR_BOTONES_CONTACTO", "MANDAR_BOTONES_COMPRAR_RENTAR",
+                      "MANDAR_BOTONES_VIVIR_INVERTIR", "CONFIRMAR_FICHA",
+                      "PREGUNTAR_TEMA_ASESOR"]
+        reply_clean = reply
+        for t in all_tokens:
+            reply_clean = reply_clean.replace(t, "").strip()
+
+        history.append({"role": "assistant", "content": reply_clean})
         history_set(phone_number, history[-20:])
 
         def dispatch_reply(reply_text):
