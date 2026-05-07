@@ -1244,6 +1244,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         history_set(phone_number, history[-20:])
 
         def dispatch_reply(reply_text):
+            datos_actuales = client_data.get(phone_number, {})
             tokens = {
                 "MANDAR_BOTONES_CONTACTO":      send_whatsapp_contact_buttons,
                 "MANDAR_BOTONES_COMPRAR_RENTAR": send_whatsapp_comprar_rentar_buttons,
@@ -1252,6 +1253,15 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             for token, fn in tokens.items():
                 if token in reply_text:
                     text_part = reply_text.replace(token, "").strip()
+                    # Saltar botones si ya tenemos esa info
+                    if token == "MANDAR_BOTONES_VIVIR_INVERTIR" and "intencion" in datos_actuales:
+                        if text_part:
+                            send_whatsapp_message(phone_number, text_part)
+                        return
+                    if token == "MANDAR_BOTONES_COMPRAR_RENTAR" and "tipo" in datos_actuales:
+                        if text_part:
+                            send_whatsapp_message(phone_number, text_part)
+                        return
                     if text_part:
                         send_whatsapp_message(phone_number, text_part)
                     fn(phone_number)
