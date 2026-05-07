@@ -1348,7 +1348,8 @@ def receive_message():
         is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
 
-        hora_actual = datetime.now().hour
+        from zoneinfo import ZoneInfo
+        hora_actual = datetime.now(ZoneInfo("America/Merida")).hour
         if hora_actual < 12:
             momento = "mañana"
             despedida = "buen día"
