@@ -397,7 +397,7 @@ def _send_interactive_buttons(to, body_text, buttons):
 
 
 def send_whatsapp_comprar_rentar_buttons(to):
-    _send_interactive_buttons(to, "que prefieres?", [
+    _send_interactive_buttons(to, "tenemos opciones de todo tipo disponibles en Mérida. qué se adapta mejor a tu plan?", [
         {"id": "comprar", "title": "Comprar"},
         {"id": "rentar", "title": "Rentar"}
     ])
@@ -840,6 +840,13 @@ def receive_message():
 
                 if button_id == "para_vivir":
                     client_data[phone_number]["intencion"] = button_title
+                    client_data_save(phone_number)
+                    send_whatsapp_comprar_rentar_buttons(phone_number)
+                    history = history_get(phone_number)
+                    history.append({"role": "user", "content": button_title})
+                    history.append({"role": "assistant", "content": "tenemos opciones de todo tipo disponibles en Mérida. qué se adapta mejor a tu plan?"})
+                    history_set(phone_number, history[-20:])
+                    return "OK", 200
 
                 elif button_id == "para_invertir":
                     client_data[phone_number]["intencion"] = button_title
