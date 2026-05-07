@@ -730,6 +730,7 @@ def receive_message():
                 if list_id.startswith("prop_"):
                     client_data[phone_number]["tipo_propiedad"] = list_title
                     waiting_for_tipo_propiedad.discard(phone_number)
+                    client_data_save(phone_number)
                     if list_id == "prop_orientacion":
                         client_data[phone_number]["conoce_merida"] = "Necesita orientación"
                         send_whatsapp_budget_list(phone_number, "comprar")
@@ -739,9 +740,11 @@ def receive_message():
                     return "OK", 200
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
+                    client_data_save(phone_number)
                     user_message = "prefiero platicarlo con el asesor"
                 else:
                     client_data[phone_number]["presupuesto"] = list_title
+                    client_data_save(phone_number)
                     # Para inversión: ir directo a preguntas de contexto, sin pasar por GPT libre
                     if client_data[phone_number].get("intencion") == "Para invertir":
                         send_whatsapp_message(phone_number, "ya tienes alguna zona de Mérida en mente o prefieres que el asesor te oriente según el tipo de inversión que buscas?")
@@ -860,6 +863,7 @@ def receive_message():
                 elif button_id == "uso_comercial":
                     client_data[phone_number]["uso_suelo"] = "Comercial"
                     waiting_for_uso_suelo.discard(phone_number)
+                    client_data_save(phone_number)
                     send_whatsapp_conoce_merida_buttons(phone_number)
                     waiting_for_conoce_merida.add(phone_number)
                     return "OK", 200
@@ -867,6 +871,7 @@ def receive_message():
                 elif button_id == "uso_habitacional":
                     client_data[phone_number]["uso_suelo"] = "Habitacional"
                     waiting_for_uso_suelo.discard(phone_number)
+                    client_data_save(phone_number)
                     send_whatsapp_plazo_renta_buttons(phone_number)
                     waiting_for_plazo_renta.add(phone_number)
                     return "OK", 200
@@ -874,6 +879,7 @@ def receive_message():
                 elif button_id in ("largo_plazo", "corto_plazo"):
                     client_data[phone_number]["plazo_renta"] = button_title
                     waiting_for_plazo_renta.discard(phone_number)
+                    client_data_save(phone_number)
                     send_whatsapp_tipo_propiedad_inversion_list(phone_number)
                     waiting_for_tipo_propiedad.add(phone_number)
                     return "OK", 200
@@ -881,6 +887,7 @@ def receive_message():
                 elif button_id in ("conoce_merida", "necesita_orientacion"):
                     client_data[phone_number]["conoce_merida"] = button_title
                     waiting_for_conoce_merida.discard(phone_number)
+                    client_data_save(phone_number)
                     send_whatsapp_budget_list(phone_number, "comprar")
                     return "OK", 200
 
