@@ -1523,7 +1523,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         dispatch_reply(reply)
 
-        # No sincronizar respuestas del bot — solo mensajes del cliente van a Chatwoot
+        # Sincronizar respuesta de María como nota privada (visible en Chatwoot, no llega al cliente)
+        chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
 
         if is_first_message:
             waiting_for_name.add(phone_number)
