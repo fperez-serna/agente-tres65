@@ -554,6 +554,14 @@ def send_zapier_ficha(phone_number):
     datos = client_data.get(phone_number, {})
     nombre_completo = datos.get("nombre_completo", "")
     partes = nombre_completo.split()
+    ctx = ad_context.get(phone_number, {})
+    if isinstance(ctx, dict):
+        origen     = ctx.get("origen", "link_directo")
+        source_id  = ctx.get("source_id", "")
+        source_url = ctx.get("source_url", "")
+    else:
+        origen, source_id, source_url = "link_directo", "", ""
+
     payload = {
         "telefono":        f"+{phone_number}",
         "nombre":          partes[0] if partes else "",
@@ -565,6 +573,9 @@ def send_zapier_ficha(phone_number):
         "presupuesto":     datos.get("presupuesto", ""),
         "ciudad":          datos.get("ciudad", ""),
         "ficha_completa":  last_ficha_text.get(phone_number, ""),
+        "origen":          origen,
+        "source_id":       source_id,
+        "source_url":      source_url,
     }
     try:
         requests.post(zapier_url, json=payload, timeout=5)
@@ -921,9 +932,15 @@ def receive_message():
                         parts.append(f"Anuncio: {referral['headline']}")
                     if referral.get("body"):
                         parts.append(f"Descripción: {referral['body']}")
-                    if parts:
-                        ad_context[phone_number] = " | ".join(parts)
-                        print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
+                    ad_context[phone_number] = {
+                        "texto":      " | ".join(parts),
+                        "source_id":  referral.get("source_id", ""),
+                        "source_url": referral.get("source_url", ""),
+                        "origen":     "anuncio"
+                    }
+                    print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
+                else:
+                    ad_context[phone_number] = {"texto": "", "source_id": "", "source_url": "", "origen": "link_directo"}
 
             if pending_decision.get(phone_number):
                 send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
@@ -1056,8 +1073,11 @@ DATOS OBLIGATORIOS en modo exploratorio:
 4. Tiempo estimado de mudanza o decisión
 5. Presupuesto aproximado
 Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
-        if ad_context.get(phone_number):
-            system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ad_context[phone_number]}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+        ctx = ad_context.get(phone_number, {})
+        if isinstance(ctx, dict) and ctx.get("texto"):
+            system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ctx['texto']}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+        elif isinstance(ctx, str) and ctx:
+            system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ctx}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
 
         system += f"\n\nTELÉFONO DEL CLIENTE: +{phone_number} — usa este número exacto en el campo Teléfono de la ficha."
 
