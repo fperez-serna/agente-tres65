@@ -1003,7 +1003,10 @@ def receive_message():
                 send_followup_template(phone_number, name)
                 return "OK", 200
 
-            # Detección de proveedor por keywords
+            # ── PASO 0: Extraer entidades y reconciliar estados ANTES de cualquier check ──
+            extract_entities(phone_number, user_message)
+
+            # Detectar proveedor por keywords
             proveedor_keywords = ["ofrezco", "ofrecemos", "proveedor", "proveedora", "somos una empresa",
                                    "mi empresa", "nuestra empresa", "constructor", "constructora",
                                    "desarrollador", "desarrolladora", "ventas b2b", "servicio de",
@@ -1084,23 +1087,25 @@ def receive_message():
                 send_whatsapp_message(phone_number, greeting)
                 return "OK", 200
 
-            # Si el cliente escribe texto cuando esperamos un botón de inversión, reenviar botones
-            if phone_number in waiting_for_uso_suelo:
+            # Si el cliente escribe texto cuando esperamos un botón de inversión,
+            # reenviar botones SOLO si la entidad aún no fue obtenida del texto
+            datos_ahora = client_data.get(phone_number, {})
+            if phone_number in waiting_for_uso_suelo and not datos_ahora.get("uso_suelo"):
                 _send_interactive_buttons(phone_number, "selecciona el tipo de inversión:", [
                     {"id": "uso_comercial",    "title": "Uso comercial"},
                     {"id": "uso_habitacional", "title": "Renta habitacional"}
                 ])
                 return "OK", 200
-            if phone_number in waiting_for_plazo_renta:
+            if phone_number in waiting_for_plazo_renta and not datos_ahora.get("plazo_renta"):
                 _send_interactive_buttons(phone_number, "selecciona el plazo de renta:", [
                     {"id": "largo_plazo", "title": "Largo plazo"},
                     {"id": "corto_plazo", "title": "Corto plazo / Airbnb"}
                 ])
                 return "OK", 200
-            if phone_number in waiting_for_tipo_propiedad:
+            if phone_number in waiting_for_tipo_propiedad and not datos_ahora.get("tipo_propiedad"):
                 send_whatsapp_tipo_propiedad_inversion_list(phone_number)
                 return "OK", 200
-            if phone_number in waiting_for_conoce_merida:
+            if phone_number in waiting_for_conoce_merida and not datos_ahora.get("conoce_merida"):
                 _send_interactive_buttons(phone_number, "conoces las zonas de Mérida?", [
                     {"id": "conoce_merida",        "title": "Conozco Mérida"},
                     {"id": "necesita_orientacion", "title": "Necesito orientación"}
