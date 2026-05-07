@@ -844,6 +844,42 @@ def schedule_followup(phone_number):
     print(f"[{phone_number}] Follow-up programado: {run_time}")
 
 
+@app.route("/chatwoot-webhook", methods=["POST"])
+def chatwoot_webhook():
+    data = request.json
+    try:
+        event = data.get("event")
+        if event != "message_created":
+            return "OK", 200
+
+        msg  = data.get("message", data)
+        # Solo reenviar mensajes de agentes humanos (no del bot ni del sistema)
+        sender_type = msg.get("sender", {}).get("type", "")
+        if sender_type not in ("agent", "user"):
+            return "OK", 200
+
+        content = msg.get("content", "").strip()
+        if not content:
+            return "OK", 200
+
+        # Obtener número de WhatsApp del contacto
+        conversation = data.get("conversation", {})
+        phone_raw = (
+            conversation.get("meta", {}).get("sender", {}).get("phone_number", "") or
+            conversation.get("additional_attributes", {}).get("phone", "")
+        )
+        phone = phone_raw.lstrip("+").strip() if phone_raw else None
+
+        if phone:
+            send_whatsapp_message(phone, content)
+            print(f"[Chatwoot→WA] {phone}: {content[:60]}")
+
+    except Exception as e:
+        print(f"Chatwoot webhook error: {e}")
+
+    return "OK", 200
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.json
