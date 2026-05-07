@@ -48,6 +48,67 @@ def history_exists(phone_number):
     if _redis:
         return _redis.exists(f"hist:{phone_number}")
     return phone_number in _memory_fallback
+FOLLOWUP_23H_TEMPLATE = "follow_up_dia_siguiente"
+VENTAS_URL  = "https://www.tres65inmobiliaria.com/properties"
+RENTAS_URL  = "https://www.tres65inmobiliaria.com/rentals"
+
+def update_last_activity(phone_number):
+    ts = datetime.now().isoformat()
+    if _redis:
+        _redis.setex(f"last_activity:{phone_number}", HISTORY_TTL, ts)
+        _redis.sadd("active_phones", phone_number)
+
+def mark_template_sent(phone_number):
+    if _redis:
+        _redis.setex(f"template_sent:{phone_number}", HISTORY_TTL, "1")
+
+def reset_template_flag(phone_number):
+    if _redis:
+        _redis.delete(f"template_sent:{phone_number}")
+
+def send_followup_template(phone_number, name):
+    token    = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url      = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers  = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": phone_number,
+        "type": "template",
+        "template": {
+            "name": FOLLOWUP_23H_TEMPLATE,
+            "language": {"code": "es_MX"},
+            "components": [
+                {"type": "body", "parameters": [{"type": "text", "text": name}]}
+            ]
+        }
+    }
+    resp = requests.post(url, headers=headers, json=data)
+    print(f"[{phone_number}] Template 23h: {resp.status_code}")
+    return resp.ok
+
+def check_and_send_24h_followups():
+    if not _redis:
+        return
+    try:
+        phones  = _redis.smembers("active_phones")
+        cutoff  = datetime.now() - timedelta(hours=23)
+        for phone in phones:
+            if _redis.exists(f"template_sent:{phone}"):
+                continue
+            last_raw = _redis.get(f"last_activity:{phone}")
+            if not last_raw:
+                continue
+            if datetime.fromisoformat(last_raw) > cutoff:
+                continue
+            datos = client_data.get(phone, {})
+            nombre_completo = datos.get("nombre_completo", "")
+            name = nombre_completo.split()[0] if nombre_completo else "amigo"
+            if send_followup_template(phone, name):
+                mark_template_sent(phone)
+    except Exception as e:
+        print(f"Error check_and_send_24h_followups: {e}")
+
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
@@ -70,6 +131,7 @@ last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 scheduler = BackgroundScheduler()
+scheduler.add_job(check_and_send_24h_followups, "interval", hours=1, id="followup_23h")
 scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
@@ -602,6 +664,8 @@ def receive_message():
 
         # Client is active — cancel any pending follow-up
         cancel_followup(phone_number)
+        update_last_activity(phone_number)
+        reset_template_flag(phone_number)  # cliente respondió → puede recibir template de nuevo en 23h
 
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
@@ -646,6 +710,25 @@ def receive_message():
                 button_id    = message["interactive"]["button_reply"]["id"]
                 button_title = message["interactive"]["button_reply"]["title"]
                 print(f"[{phone_number}] Botón: {button_id}")
+
+                # Botones de respuesta al template de 23h — retomar conversación
+                if button_id in ("template_ventas", "template_rentas", "template_continuar"):
+                    datos = client_data.get(phone_number, {})
+                    # Detectar qué falta y enviar el siguiente botón pendiente
+                    if "intencion" not in datos:
+                        send_whatsapp_message(phone_number, "qué gusto verte por aquí de nuevo. continuemos donde lo dejamos.")
+                        send_whatsapp_vivir_invertir_buttons(phone_number)
+                    elif "tipo" not in datos and datos.get("intencion") != "Para invertir":
+                        send_whatsapp_comprar_rentar_buttons(phone_number)
+                    elif "presupuesto" not in datos:
+                        tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
+                        send_whatsapp_budget_list(phone_number, tipo)
+                    elif "correo" not in datos:
+                        send_whatsapp_message(phone_number, "para conectarte con el asesor ideal necesito tu correo. me lo compartes?")
+                        waiting_for_email.add(phone_number)
+                    else:
+                        send_whatsapp_message(phone_number, "ya tengo tu información. en breve un asesor se pone en contacto contigo.")
+                    return "OK", 200
 
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
