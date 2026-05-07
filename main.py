@@ -518,15 +518,26 @@ def extract_entities(phone_number, text):
     datos = client_data.setdefault(phone_number, {})
 
     if "intencion" not in datos:
-        if any(w in low for w in ["para vivir", "para mi familia", "para mudarnos", "para residir", "para vivir"]):
+        vivir_patterns = ["para vivir", "para mi familia", "para mudarnos", "para residir",
+                          "mudarme", "mudarse", "me mudo", "nos mudamos", "vivir en mérida",
+                          "vivir allá", "vivir alla", "para establecerme", "para quedarme",
+                          "conocer la ciudad", "conocer mérida", "vivir en la ciudad"]
+        invertir_patterns = ["para invertir", "como inversión", "como inversion",
+                             "airbnb", "negocio", "rentar a otros", "generar renta"]
+        if any(w in low for w in vivir_patterns):
             datos["intencion"] = "Para vivir"
-        elif any(w in low for w in ["invertir", "inversión", "inversion", "airbnb", "negocio"]):
+        elif any(w in low for w in invertir_patterns):
             datos["intencion"] = "Para invertir"
 
     if "tipo" not in datos:
-        if any(w in low for w in ["comprar", "compra", "adquirir"]):
+        tiene_compra = any(w in low for w in ["comprar", "compra", "adquirir"])
+        tiene_renta = any(w in low for w in ["rentar", "renta", "arrendar"])
+        if tiene_compra and tiene_renta:
+            # Ambos mencionados — dejar que GPT aclare
+            pass
+        elif tiene_compra:
             datos["tipo"] = "Comprar"
-        elif any(w in low for w in ["rentar", "renta", "arrendar"]):
+        elif tiene_renta:
             datos["tipo"] = "Rentar"
 
     if "ciudad" not in datos:
