@@ -328,7 +328,7 @@ def send_whatsapp_help_buttons(to):
 def send_whatsapp_uso_suelo_buttons(to):
     _send_interactive_buttons(to, "qué tipo de inversión tienes en mente?", [
         {"id": "uso_comercial",    "title": "Uso comercial"},
-        {"id": "uso_habitacional", "title": "Habitacional para renta"}
+        {"id": "uso_habitacional", "title": "Renta habitacional"}
     ])
 
 
@@ -770,7 +770,7 @@ def receive_message():
             if phone_number in waiting_for_uso_suelo:
                 _send_interactive_buttons(phone_number, "selecciona el tipo de inversión:", [
                     {"id": "uso_comercial",    "title": "Uso comercial"},
-                    {"id": "uso_habitacional", "title": "Habitacional para renta"}
+                    {"id": "uso_habitacional", "title": "Renta habitacional"}
                 ])
                 return "OK", 200
             if phone_number in waiting_for_plazo_renta:
