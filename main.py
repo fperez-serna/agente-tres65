@@ -623,7 +623,7 @@ def get_client_name(phone_number):
         return None
     try:
         response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "De esta conversación de WhatsApp extrae solo el primer nombre del cliente. Responde únicamente con el nombre, sin puntuación. Si no aparece un nombre claro, responde 'desconocido'."}
             ] + history[:8],
@@ -662,7 +662,7 @@ def chat():
     user_message = data.get("message", "")
 
     response = openai.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message}
@@ -1190,7 +1190,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             system += "\n\nEl cliente acaba de corregir un dato de su ficha. Actualiza el dato, regenera la ficha completa con el formato del PASO 7 y agrega CONFIRMAR_FICHA al final."
 
         response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[{"role": "system", "content": system}] + history
         )
 
