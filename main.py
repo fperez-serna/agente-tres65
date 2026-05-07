@@ -52,6 +52,15 @@ FOLLOWUP_23H_TEMPLATE = "follow_up_dia_siguiente"
 VENTAS_URL  = "https://www.tres65inmobiliaria.com/properties"
 RENTAS_URL  = "https://www.tres65inmobiliaria.com/rentals"
 
+def save_nombre_redis(phone_number, nombre_completo):
+    if _redis:
+        _redis.setex(f"nombre:{phone_number}", HISTORY_TTL, nombre_completo)
+
+def get_nombre_redis(phone_number):
+    if _redis:
+        return _redis.get(f"nombre:{phone_number}") or ""
+    return ""
+
 def update_last_activity(phone_number):
     ts = datetime.now().isoformat()
     if _redis:
@@ -101,8 +110,7 @@ def check_and_send_24h_followups():
                 continue
             if datetime.fromisoformat(last_raw) > cutoff:
                 continue
-            datos = client_data.get(phone, {})
-            nombre_completo = datos.get("nombre_completo", "")
+            nombre_completo = get_nombre_redis(phone) or client_data.get(phone, {}).get("nombre_completo", "")
             name = nombre_completo.split()[0] if nombre_completo else "amigo"
             if send_followup_template(phone, name):
                 mark_template_sent(phone)
@@ -709,7 +717,7 @@ def receive_message():
             else:
                 button_id    = message["interactive"]["button_reply"]["id"]
                 button_title = message["interactive"]["button_reply"]["title"]
-                print(f"[{phone_number}] Botón: {button_id}")
+                print(f"[{phone_number}] Botón id='{button_id}' title='{button_title}'")
 
                 # Botones de respuesta al template de 23h
                 btn_lower = button_title.lower()
@@ -845,8 +853,7 @@ def receive_message():
 
             # Palabra clave de prueba — dispara el template de 23h inmediatamente
             if user_message.strip().lower() == "test_followup365":
-                datos = client_data.get(phone_number, {})
-                nombre_completo = datos.get("nombre_completo", "")
+                nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
                 return "OK", 200
@@ -975,19 +982,22 @@ def receive_message():
                 words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
                 if len(words) == 1:
                     client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
+                    save_nombre_redis(phone_number, words[0].capitalize())
                     waiting_for_apellido.add(phone_number)
                     send_whatsapp_message(phone_number, "y tu apellido?")
                     return "OK", 200
                 elif len(words) >= 2:
-                    client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip().title()
+                    full = user_message.strip().title()
+                    client_data.setdefault(phone_number, {})["nombre_completo"] = full
+                    save_nombre_redis(phone_number, full)
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
                 waiting_for_apellido.discard(phone_number)
-                existing = client_data.get(phone_number, {}).get("nombre_completo", "")
+                existing = client_data.get(phone_number, {}).get("nombre_completo", "") or get_nombre_redis(phone_number)
                 full_name = f"{existing} {user_message.strip().title()}".strip()
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
-                # Ahora sí tiene nombre completo, GPT manda el PASO 2
+                save_nombre_redis(phone_number, full_name)
 
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
