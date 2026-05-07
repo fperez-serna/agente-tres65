@@ -1084,21 +1084,15 @@ def receive_message():
                     client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
                     client_data_save(phone_number)
 
-            # Detectar email en cualquier mensaje si aún no lo tenemos
+            # Detectar email en cualquier mensaje
             email_match = re.search(r'[^@\s]+@[^@\s]+\.[^@\s]{2,}', user_message.strip())
-            if email_match and not client_data.get(phone_number, {}).get("correo"):
+            if email_match:
                 client_data.setdefault(phone_number, {})["correo"] = email_match.group(0)
                 client_data_save(phone_number)
                 waiting_for_email.discard(phone_number)
-
-            if phone_number in waiting_for_email:
-                if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
-                    waiting_for_email.discard(phone_number)
-                    client_data.setdefault(phone_number, {})["correo"] = user_message.strip()
-                    client_data_save(phone_number)
-                else:
-                    send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
-                    return "OK", 200
+            elif phone_number in waiting_for_email:
+                send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
+                return "OK", 200
 
         else:
             return "OK", 200
