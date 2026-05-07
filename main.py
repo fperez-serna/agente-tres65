@@ -872,6 +872,9 @@ def chatwoot_webhook():
 
         if phone:
             send_whatsapp_message(phone, content)
+            # Pausar el bot para este número — agente humano tomó el control
+            if _redis:
+                _redis.setex(f"agent_active:{phone}", 2 * 3600, "1")  # bot pausa 2h
             print(f"[Chatwoot→WA] {phone}: {content[:60]}")
 
     except Exception as e:
@@ -936,7 +939,11 @@ def receive_message():
         if msg_type == "text":
             _body = message.get("text", {}).get("body", "")
             if _body:
-                chatwoot_sync_message(phone_number, _body, "incoming")  # cliente respondió → puede recibir template de nuevo en 23h
+                chatwoot_sync_message(phone_number, _body, "incoming")
+                # Si agente humano está activo, no responder con el bot
+                if _redis and _redis.exists(f"agent_active:{phone_number}"):
+                    print(f"[{phone_number}] Agente activo — bot pausado")
+                    return "OK", 200  # cliente respondió → puede recibir template de nuevo en 23h
 
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
