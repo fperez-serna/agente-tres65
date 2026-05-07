@@ -711,23 +711,48 @@ def receive_message():
                 button_title = message["interactive"]["button_reply"]["title"]
                 print(f"[{phone_number}] Botón: {button_id}")
 
-                # Botones de respuesta al template de 23h — retomar conversación
-                if button_id in ("template_ventas", "template_rentas", "template_continuar"):
+                # Botones de respuesta al template de 23h
+                btn_lower = button_title.lower()
+
+                if "asesor" in btn_lower or "hablar" in btn_lower:
+                    # Hablar con asesor experto → retomar ficha o conectar directo
                     datos = client_data.get(phone_number, {})
-                    # Detectar qué falta y enviar el siguiente botón pendiente
-                    if "intencion" not in datos:
-                        send_whatsapp_message(phone_number, "qué gusto verte por aquí de nuevo. continuemos donde lo dejamos.")
-                        send_whatsapp_vivir_invertir_buttons(phone_number)
-                    elif "tipo" not in datos and datos.get("intencion") != "Para invertir":
-                        send_whatsapp_comprar_rentar_buttons(phone_number)
-                    elif "presupuesto" not in datos:
-                        tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
-                        send_whatsapp_budget_list(phone_number, tipo)
-                    elif "correo" not in datos:
-                        send_whatsapp_message(phone_number, "para conectarte con el asesor ideal necesito tu correo. me lo compartes?")
-                        waiting_for_email.add(phone_number)
+                    if "correo" in datos:
+                        send_whatsapp_message(phone_number, "qué gusto que regreses. te voy a conectar con el asesor ideal para ti.")
+                        send_whatsapp_contact_buttons(phone_number)
                     else:
-                        send_whatsapp_message(phone_number, "ya tengo tu información. en breve un asesor se pone en contacto contigo.")
+                        send_whatsapp_message(phone_number, "qué gusto que regreses. para pasarte con el asesor correcto necesito completar tu ficha.")
+                        if "intencion" not in datos:
+                            send_whatsapp_vivir_invertir_buttons(phone_number)
+                        elif "tipo" not in datos and datos.get("intencion") != "Para invertir":
+                            send_whatsapp_comprar_rentar_buttons(phone_number)
+                        elif "presupuesto" not in datos:
+                            tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
+                            send_whatsapp_budget_list(phone_number, tipo)
+                        else:
+                            send_whatsapp_message(phone_number, "me compartes tu correo para completar tu ficha?")
+                            waiting_for_email.add(phone_number)
+                    return "OK", 200
+
+                if "catálogo" in btn_lower or "catalogo" in btn_lower or "propiedad" in btn_lower:
+                    # Catálogo → preguntar ventas o rentas con CTA buttons
+                    _send_interactive_buttons(phone_number, "qué te interesa ver?", [
+                        {"id": "catalogo_ventas", "title": "Propiedades en venta"},
+                        {"id": "catalogo_rentas", "title": "Propiedades en renta"}
+                    ])
+                    return "OK", 200
+
+                if button_id == "catalogo_ventas":
+                    send_whatsapp_message(phone_number, f"aquí puedes ver todas nuestras propiedades en venta:\n{VENTAS_URL}")
+                    return "OK", 200
+
+                if button_id == "catalogo_rentas":
+                    send_whatsapp_message(phone_number, f"aquí puedes ver todas nuestras propiedades en renta:\n{RENTAS_URL}")
+                    return "OK", 200
+
+                if "tiempo" in btn_lower or "después" in btn_lower or "despues" in btn_lower:
+                    # Necesito más tiempo
+                    send_whatsapp_message(phone_number, "es completamente normal, el mercado inmobiliario puede ser saturador. aquí voy a estar cuando estés lista o listo, sin presión.")
                     return "OK", 200
 
                 if button_id == "ficha_correcta":
