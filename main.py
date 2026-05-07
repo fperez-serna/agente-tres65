@@ -536,6 +536,18 @@ def send_whatsapp_budget_list(to, tipo):
     print(f"WhatsApp budget list: {response.status_code} - {response.text}")
 
 
+def _send_paso2(phone_number, primer_nombre, user_message_for_history):
+    texto = f"Mucho gusto {primer_nombre}. y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo"
+    send_whatsapp_message(phone_number, texto)
+    send_whatsapp_vivir_invertir_buttons(phone_number)
+    history = history_get(phone_number)
+    history.append({"role": "user", "content": user_message_for_history})
+    history.append({"role": "assistant", "content": texto})
+    history_set(phone_number, history[-20:])
+    update_last_activity(phone_number)
+    schedule_followup(phone_number)
+
+
 def reset_conversation(phone_number):
     history_delete(phone_number)
     client_data.pop(phone_number, None)
@@ -1021,6 +1033,9 @@ def receive_message():
                     full = user_message.strip().title()
                     client_data.setdefault(phone_number, {})["nombre_completo"] = full
                     save_nombre_redis(phone_number, full)
+                    client_data_save(phone_number)
+                    _send_paso2(phone_number, words[0].capitalize(), user_message)
+                    return "OK", 200
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -1029,6 +1044,9 @@ def receive_message():
                 full_name = f"{existing} {user_message.strip().title()}".strip()
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
                 save_nombre_redis(phone_number, full_name)
+                client_data_save(phone_number)
+                _send_paso2(phone_number, full_name.split()[0], user_message)
+                return "OK", 200
 
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
