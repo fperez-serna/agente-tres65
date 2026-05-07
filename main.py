@@ -843,6 +843,14 @@ def receive_message():
         elif msg_type == "text":
             user_message = message["text"]["body"]
 
+            # Palabra clave de prueba — dispara el template de 23h inmediatamente
+            if user_message.strip().lower() == "test_followup365":
+                datos = client_data.get(phone_number, {})
+                nombre_completo = datos.get("nombre_completo", "")
+                name = nombre_completo.split()[0] if nombre_completo else "amigo"
+                send_followup_template(phone_number, name)
+                return "OK", 200
+
             # Palabra clave secreta para reiniciar conversación
             if user_message.strip().lower() == "reset365":
                 reset_conversation(phone_number)
