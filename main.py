@@ -1084,9 +1084,6 @@ def receive_message():
                 _send_paso2(phone_number, full_name.split()[0], user_message)
                 return "OK", 200
 
-            # Extracción de entidades en cualquier mensaje de texto libre
-            extract_entities(phone_number, user_message)
-
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
                     waiting_for_ciudad.discard(phone_number)  # ignorar para inversión
@@ -1126,10 +1123,20 @@ def receive_message():
         system = SYSTEM_PROMPT
         system += f"\n\nHORA ACTUAL: Son las {hora_actual}:00 hrs — es de {momento}. Cuando te despidas o cierres un mensaje usa '{despedida}', nunca 'buen día' si es de tarde o noche."
 
+        # Extraer entidades del mensaje ANTES de decidir qué instrucción dar
+        if msg_type == "text":
+            extract_entities(phone_number, user_message)
+
+        datos_frescos = client_data.get(phone_number, {})
+
         if is_first_message:
-            system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
-        elif not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 4:
-            system += "\n\nINSTRUCCIÓN: El cliente se presentó con info adicional. Responde de forma cálida confirmando lo que entendiste (ej: 'qué gusto Fernanda, entiendo que buscas comprar una casa para vivir en Mérida') y pide solo el apellido para completar su ficha. No hagas más preguntas."
+            if datos_frescos.get("intencion") or datos_frescos.get("tipo") or datos_frescos.get("ciudad"):
+                # El primer mensaje ya tiene info útil — saluda, confirma lo que entendiste y pide nombre/apellido
+                system += "\n\nINSTRUCCIÓN: Es el primer mensaje y el cliente ya compartió información. Saluda como María de TRES65, confirma con calidez lo que entendiste de su mensaje (intención, tipo de propiedad, ciudad si aplica) y pide su nombre completo. No hagas más preguntas."
+            else:
+                system += "\n\nINSTRUCCIÓN INMEDIATA: Primer mensaje sin datos. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
+        elif not datos_frescos.get("nombre_completo") and len(history) <= 4:
+            system += "\n\nINSTRUCCIÓN: El cliente se presentó. Confirma con calidez lo que entendiste y pide solo el apellido. No hagas más preguntas."
 
         if phone_number in waiting_for_apellido:
             system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
