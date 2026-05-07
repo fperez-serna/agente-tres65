@@ -27,6 +27,10 @@ waiting_for_asesor_topic = set()      # clientes a los que se les preguntó el t
 algo_mas_mode = set()                 # clientes en flujo exploratorio
 waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
 ficha_confirmada = set()              # clientes cuya ficha ya fue confirmada
+waiting_for_uso_suelo = set()         # esperando click en comercial/habitacional
+waiting_for_plazo_renta = set()       # esperando click en largo/corto plazo
+waiting_for_tipo_propiedad = set()    # esperando click en tipo de propiedad
+waiting_for_conoce_merida = set()     # esperando click en conoce mérida
 last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
@@ -428,6 +432,10 @@ def reset_conversation(phone_number):
     waiting_for_asesor_topic.discard(phone_number)
     waiting_for_ficha_correction.discard(phone_number)
     ficha_confirmada.discard(phone_number)
+    waiting_for_uso_suelo.discard(phone_number)
+    waiting_for_plazo_renta.discard(phone_number)
+    waiting_for_tipo_propiedad.discard(phone_number)
+    waiting_for_conoce_merida.discard(phone_number)
     last_ficha_text.pop(phone_number, None)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
@@ -578,7 +586,9 @@ def receive_message():
 
                 if list_id.startswith("prop_"):
                     client_data[phone_number]["tipo_propiedad"] = list_title
+                    waiting_for_tipo_propiedad.discard(phone_number)
                     send_whatsapp_conoce_merida_buttons(phone_number)
+                    waiting_for_conoce_merida.add(phone_number)
                     return "OK", 200
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
@@ -638,29 +648,36 @@ def receive_message():
 
                 elif button_id == "para_invertir":
                     client_data[phone_number]["intencion"] = button_title
-                    send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. antes de ver el rango, cuéntame qué tipo de inversión tienes en mente:")
+                    client_data[phone_number]["tipo"] = "Compra"
+                    send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. qué tipo de inversión tienes en mente?")
                     send_whatsapp_uso_suelo_buttons(phone_number)
+                    waiting_for_uso_suelo.add(phone_number)
                     return "OK", 200
 
                 elif button_id == "uso_comercial":
                     client_data[phone_number]["uso_suelo"] = "Comercial"
-                    client_data[phone_number]["tipo"] = "Compra"
+                    waiting_for_uso_suelo.discard(phone_number)
                     send_whatsapp_conoce_merida_buttons(phone_number)
+                    waiting_for_conoce_merida.add(phone_number)
                     return "OK", 200
 
                 elif button_id == "uso_habitacional":
                     client_data[phone_number]["uso_suelo"] = "Habitacional"
-                    client_data[phone_number]["tipo"] = "Compra"
+                    waiting_for_uso_suelo.discard(phone_number)
                     send_whatsapp_plazo_renta_buttons(phone_number)
+                    waiting_for_plazo_renta.add(phone_number)
                     return "OK", 200
 
                 elif button_id in ("largo_plazo", "corto_plazo"):
                     client_data[phone_number]["plazo_renta"] = button_title
+                    waiting_for_plazo_renta.discard(phone_number)
                     send_whatsapp_tipo_propiedad_inversion_list(phone_number)
+                    waiting_for_tipo_propiedad.add(phone_number)
                     return "OK", 200
 
                 elif button_id in ("conoce_merida", "necesita_orientacion"):
                     client_data[phone_number]["conoce_merida"] = button_title
+                    waiting_for_conoce_merida.discard(phone_number)
                     send_whatsapp_budget_list(phone_number, "comprar")
                     return "OK", 200
 
@@ -747,6 +764,24 @@ def receive_message():
                 name = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre")
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
+                return "OK", 200
+
+            # Si el cliente escribe texto cuando esperamos un botón de inversión, reenviar botones
+            if phone_number in waiting_for_uso_suelo:
+                send_whatsapp_message(phone_number, "usa los botones para seleccionar el tipo de inversión")
+                send_whatsapp_uso_suelo_buttons(phone_number)
+                return "OK", 200
+            if phone_number in waiting_for_plazo_renta:
+                send_whatsapp_message(phone_number, "selecciona el plazo con los botones")
+                send_whatsapp_plazo_renta_buttons(phone_number)
+                return "OK", 200
+            if phone_number in waiting_for_tipo_propiedad:
+                send_whatsapp_message(phone_number, "selecciona el tipo de propiedad con el menú")
+                send_whatsapp_tipo_propiedad_inversion_list(phone_number)
+                return "OK", 200
+            if phone_number in waiting_for_conoce_merida:
+                send_whatsapp_message(phone_number, "selecciona una opción con los botones")
+                send_whatsapp_conoce_merida_buttons(phone_number)
                 return "OK", 200
 
             if phone_number in waiting_for_ficha_correction:
