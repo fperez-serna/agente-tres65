@@ -516,7 +516,7 @@ STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "q
              "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
 
 def extract_entities(phone_number, text):
-    """Extrae intención, tipo, ciudad y zona del texto y los guarda en client_data."""
+    """Extrae intención, tipo, ciudad y zona, y los guarda en client_data."""
     low = text.lower()
     datos = client_data.setdefault(phone_number, {})
 
@@ -616,6 +616,108 @@ def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     history_set(phone_number, history[-20:])
     update_last_activity(phone_number)
     schedule_followup(phone_number)
+
+
+def _chatwoot_headers():
+    return {
+        "api_access_token": os.environ.get("CHATWOOT_TOKEN", ""),
+        "Content-Type": "application/json"
+    }
+
+def chatwoot_base():
+    url  = os.environ.get("CHATWOOT_URL", "")
+    acct = os.environ.get("CHATWOOT_ACCOUNT_ID", "")
+    return f"{url}/api/v1/accounts/{acct}"
+
+def chatwoot_get_or_create_contact(phone_number, datos):
+    base = chatwoot_base()
+    nombre = datos.get("nombre_completo", "")
+    correo = datos.get("correo", "")
+    # Buscar contacto existente por teléfono
+    r = requests.get(f"{base}/contacts/search",
+                     params={"q": phone_number, "page": 1},
+                     headers=_chatwoot_headers(), timeout=5)
+    results = r.json().get("payload", {}).get("contacts", []) if r.ok else []
+    if results:
+        return results[0]["id"]
+    # Crear nuevo contacto
+    payload = {
+        "name":         nombre or phone_number,
+        "phone_number": f"+{phone_number}",
+        "email":        correo or None,
+    }
+    r = requests.post(f"{base}/contacts", json=payload,
+                      headers=_chatwoot_headers(), timeout=5)
+    return r.json().get("id") if r.ok else None
+
+def chatwoot_get_or_create_conversation(phone_number, contact_id):
+    base     = chatwoot_base()
+    inbox_id = os.environ.get("CHATWOOT_INBOX_ID", "")
+    redis_key = f"cw_conv:{phone_number}"
+    # Revisar si ya existe en Redis
+    if _redis:
+        conv_id = _redis.get(redis_key)
+        if conv_id:
+            return int(conv_id)
+    # Crear nueva conversación
+    payload = {
+        "contact_id":       contact_id,
+        "inbox_id":         int(inbox_id),
+        "additional_attributes": {"phone": f"+{phone_number}"}
+    }
+    r = requests.post(f"{base}/conversations", json=payload,
+                      headers=_chatwoot_headers(), timeout=5)
+    if r.ok:
+        conv_id = r.json().get("id")
+        if _redis and conv_id:
+            _redis.setex(redis_key, HISTORY_TTL, str(conv_id))
+        return conv_id
+    return None
+
+def chatwoot_send_message(conv_id, text, message_type="outgoing"):
+    base = chatwoot_base()
+    requests.post(f"{base}/conversations/{conv_id}/messages",
+                  json={"content": text, "message_type": message_type, "private": False},
+                  headers=_chatwoot_headers(), timeout=5)
+
+def chatwoot_add_label(conv_id, label):
+    base = chatwoot_base()
+    requests.post(f"{base}/conversations/{conv_id}/labels",
+                  json={"labels": [label]},
+                  headers=_chatwoot_headers(), timeout=5)
+
+def chatwoot_sync_message(phone_number, text, message_type="incoming"):
+    """Sincroniza un mensaje a Chatwoot para monitoreo."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        datos    = client_data_load(phone_number)
+        c_id     = chatwoot_get_or_create_contact(phone_number, datos)
+        if not c_id:
+            return
+        conv_id  = chatwoot_get_or_create_conversation(phone_number, c_id)
+        if not conv_id:
+            return
+        chatwoot_send_message(conv_id, text, message_type)
+    except Exception as e:
+        print(f"Chatwoot sync error: {e}")
+
+def chatwoot_mark_qualified(phone_number, ficha_text):
+    """Etiqueta la conversación como lista para asesor y añade la ficha."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        datos   = client_data_load(phone_number)
+        c_id    = chatwoot_get_or_create_contact(phone_number, datos)
+        if not c_id:
+            return
+        conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+        if not conv_id:
+            return
+        chatwoot_add_label(conv_id, "listo-para-asesor")
+        chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}", "activity")
+    except Exception as e:
+        print(f"Chatwoot qualify error: {e}")
 
 
 def reset_conversation(phone_number):
@@ -790,7 +892,13 @@ def receive_message():
         # Client is active — cancel any pending follow-up
         cancel_followup(phone_number)
         update_last_activity(phone_number)
-        reset_template_flag(phone_number)  # cliente respondió → puede recibir template de nuevo en 23h
+        reset_template_flag(phone_number)
+
+        # Sincronizar mensaje entrante a Chatwoot
+        if msg_type == "text":
+            _body = message.get("text", {}).get("body", "")
+            if _body:
+                chatwoot_sync_message(phone_number, _body, "incoming")  # cliente respondió → puede recibir template de nuevo en 23h
 
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
@@ -886,6 +994,7 @@ def receive_message():
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
                     send_zapier_ficha(phone_number)
+                    chatwoot_mark_qualified(phone_number, last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else ""))
                     send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
@@ -1359,6 +1468,9 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 waiting_for_email.add(phone_number)
 
         dispatch_reply(reply)
+
+        # Sincronizar respuesta de María a Chatwoot
+        chatwoot_sync_message(phone_number, reply_clean, "outgoing")
 
         if is_first_message:
             waiting_for_name.add(phone_number)
