@@ -944,11 +944,7 @@ def receive_message():
         if msg_type == "text":
             _body = message.get("text", {}).get("body", "")
             if _body:
-                chatwoot_sync_message(phone_number, _body, "incoming")
-                # Si agente humano está activo, no responder con el bot
-                if _redis and _redis.exists(f"agent_active:{phone_number}"):
-                    print(f"[{phone_number}] Agente activo — bot pausado")
-                    return "OK", 200  # cliente respondió → puede recibir template de nuevo en 23h
+                chatwoot_sync_message(phone_number, _body, "incoming")  # cliente respondió → puede recibir template de nuevo en 23h
 
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
@@ -1150,9 +1146,11 @@ def receive_message():
         elif msg_type == "text":
             user_message = message["text"]["body"]
 
-            # Palabras clave secretas — tienen prioridad absoluta sobre cualquier otro estado
+            # Palabras clave secretas — prioridad ABSOLUTA, incluso sobre agente activo
             if user_message.strip().lower() == "reset365":
                 reset_conversation(phone_number)
+                if _redis:
+                    _redis.delete(f"agent_active:{phone_number}")
                 send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
                 return "OK", 200
 
@@ -1160,6 +1158,11 @@ def receive_message():
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
+                return "OK", 200
+
+            # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
+            if _redis and _redis.exists(f"agent_active:{phone_number}"):
+                print(f"[{phone_number}] Agente activo — bot pausado")
                 return "OK", 200
 
             # ── PASO 0: Extraer entidades y reconciliar estados ANTES de cualquier check ──
