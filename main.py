@@ -86,18 +86,16 @@ No preguntes nada más hasta recibir respuesta.
 PASO 4 — Presupuesto
 El sistema manda los botones automáticamente. Cuando el cliente responda tendrás ese dato en "LO QUE YA SABES". No preguntes presupuesto en texto.
 
-PASO 5 — Ciudad de origen
-Solo cuando tienes nombre, vivir/invertir, compra/renta y presupuesto. Pregunta en texto:
-"ya vives en Mérida o de dónde te mudas?"
+PASO 5 — Ciudad de origen (solo para clientes que buscan para VIVIR)
+Si el cliente busca para vivir: pregunta "ya vives en Mérida o de dónde te mudas?"
+Si el cliente busca para INVERTIR: omite esta pregunta, el sistema ya capturó uso de suelo, plazo y tipo de propiedad.
 Espera la respuesta antes de continuar.
 
 PASO 5.5 — Contexto para notas (MUY IMPORTANTE, no te lo saltes)
-Después de saber de dónde viene, haz 1 o 2 preguntas naturales para enriquecer las notas. Elige las más relevantes según lo que ya sabes:
-- "ya tienes alguna zona en mente o todavía estás explorando?"
-- "es para ti solo, en pareja o para toda la familia?"
-- "más o menos cuántos cuartos necesitarías?"
-- "hay algo en especial que busques — alberca, jardín, amenidades, cerca de escuelas?"
-Haz máximo 2 preguntas, una a la vez. Este contexto va a las Notas de la ficha.
+Haz 1 o 2 preguntas naturales para enriquecer las notas según el perfil:
+Para vivir: zona en mente, cuántos cuartos, familia o solo, algo especial (alberca, escuelas, jardín)
+Para invertir: ya tiene una zona en mente o necesita orientación del asesor, expectativa de retorno
+Máximo 2 preguntas, una a la vez.
 
 PASO 6 — Correo
 Solo cuando ya tienes el contexto de notas. Manda SOLO esto:
@@ -323,6 +321,55 @@ def send_whatsapp_help_buttons(to):
     ])
 
 
+def send_whatsapp_uso_suelo_buttons(to):
+    _send_interactive_buttons(to, "qué tipo de inversión tienes en mente?", [
+        {"id": "uso_comercial",    "title": "Uso comercial"},
+        {"id": "uso_habitacional", "title": "Habitacional para renta"}
+    ])
+
+
+def send_whatsapp_plazo_renta_buttons(to):
+    _send_interactive_buttons(to, "es para renta a...", [
+        {"id": "largo_plazo", "title": "Largo plazo"},
+        {"id": "corto_plazo", "title": "Corto plazo / Airbnb"}
+    ])
+
+
+def send_whatsapp_tipo_propiedad_inversion_list(to):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "body": {"text": "qué tipo de propiedad te interesa?"},
+            "action": {
+                "button": "Ver opciones",
+                "sections": [{"title": "Tipo de propiedad", "rows": [
+                    {"id": "prop_casa_privada", "title": "Casa en privada"},
+                    {"id": "prop_casa_calle",   "title": "Casa a pie de calle"},
+                    {"id": "prop_depto",        "title": "Departamento"},
+                    {"id": "prop_townhouse",    "title": "Townhouse"},
+                    {"id": "prop_terreno",      "title": "Terreno sin construcción"},
+                ]}]
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp tipo propiedad list: {response.status_code}")
+
+
+def send_whatsapp_conoce_merida_buttons(to):
+    _send_interactive_buttons(to, "conoces las zonas de Mérida?", [
+        {"id": "conoce_merida",       "title": "Conozco Mérida"},
+        {"id": "necesita_orientacion","title": "Necesito orientación"}
+    ])
+
+
 def send_whatsapp_budget_list(to, tipo):
     token = os.environ.get("WHATSAPP_TOKEN")
     phone_id = os.environ.get("WHATSAPP_PHONE_ID")
@@ -522,14 +569,18 @@ def receive_message():
             interactive_type = message["interactive"].get("type")
             pending_decision.pop(phone_number, None)
 
-            # Respuesta de lista de presupuesto
+            # Respuesta de lista
             if interactive_type == "list_reply":
                 list_id    = message["interactive"]["list_reply"]["id"]
                 list_title = message["interactive"]["list_reply"]["title"]
                 print(f"[{phone_number}] Lista: {list_id}")
                 client_data.setdefault(phone_number, {})
 
-                if list_id == "presup_asesor":
+                if list_id.startswith("prop_"):
+                    client_data[phone_number]["tipo_propiedad"] = list_title
+                    send_whatsapp_conoce_merida_buttons(phone_number)
+                    return "OK", 200
+                elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
                     user_message = "prefiero platicarlo con el asesor"
                 else:
@@ -582,8 +633,37 @@ def receive_message():
                     send_whatsapp_message(phone_number, "con gusto te ayudo. cuéntame, qué estás buscando?")
                     return "OK", 200
 
-                if button_id in ("para_vivir", "para_invertir"):
+                if button_id == "para_vivir":
                     client_data[phone_number]["intencion"] = button_title
+
+                elif button_id == "para_invertir":
+                    client_data[phone_number]["intencion"] = button_title
+                    send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. antes de ver el rango, cuéntame qué tipo de inversión tienes en mente:")
+                    send_whatsapp_uso_suelo_buttons(phone_number)
+                    return "OK", 200
+
+                elif button_id == "uso_comercial":
+                    client_data[phone_number]["uso_suelo"] = "Comercial"
+                    client_data[phone_number]["tipo"] = "Compra"
+                    send_whatsapp_conoce_merida_buttons(phone_number)
+                    return "OK", 200
+
+                elif button_id == "uso_habitacional":
+                    client_data[phone_number]["uso_suelo"] = "Habitacional"
+                    client_data[phone_number]["tipo"] = "Compra"
+                    send_whatsapp_plazo_renta_buttons(phone_number)
+                    return "OK", 200
+
+                elif button_id in ("largo_plazo", "corto_plazo"):
+                    client_data[phone_number]["plazo_renta"] = button_title
+                    send_whatsapp_tipo_propiedad_inversion_list(phone_number)
+                    return "OK", 200
+
+                elif button_id in ("conoce_merida", "necesita_orientacion"):
+                    client_data[phone_number]["conoce_merida"] = button_title
+                    send_whatsapp_budget_list(phone_number, "comprar")
+                    return "OK", 200
+
                 elif button_id in ("comprar", "rentar"):
                     client_data[phone_number]["tipo"] = button_title
                     send_whatsapp_budget_list(phone_number, button_id)
@@ -673,22 +753,25 @@ def receive_message():
                 waiting_for_ficha_correction.discard(phone_number)
                 user_message = f"corrección de ficha: {user_message}"
 
-            # Captura de nombre después del saludo
+            # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
                 waiting_for_name.discard(phone_number)
                 words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
                 if len(words) == 1:
                     client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
                     waiting_for_apellido.add(phone_number)
+                    send_whatsapp_message(phone_number, "y tu apellido?")
+                    return "OK", 200
                 elif len(words) >= 2:
                     client_data.setdefault(phone_number, {})["nombre_completo"] = user_message.strip().title()
 
-            # Guardar apellido cuando se pidió
+            # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
                 waiting_for_apellido.discard(phone_number)
                 existing = client_data.get(phone_number, {}).get("nombre_completo", "")
                 full_name = f"{existing} {user_message.strip().title()}".strip()
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
+                # Ahora sí tiene nombre completo, GPT manda el PASO 2
 
             if phone_number in waiting_for_ciudad:
                 waiting_for_ciudad.discard(phone_number)
@@ -761,9 +844,17 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             if "tipo" in datos:
                 conocido.append(f"- Ya dijo que quiere {datos['tipo']} (NO vuelvas a preguntar esto)")
             if "presupuesto" in datos:
-                conocido.append(f"- Presupuesto: {datos['presupuesto']} (NO vuelvas a preguntar esto, ve al PASO 5)")
+                conocido.append(f"- Presupuesto: {datos['presupuesto']} (NO vuelvas a preguntar esto)")
             if "ciudad" in datos:
-                conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto, ve al PASO 6)")
+                conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto)")
+            if "uso_suelo" in datos:
+                conocido.append(f"- Tipo de inversión: {datos['uso_suelo']} (NO vuelvas a preguntar esto)")
+            if "plazo_renta" in datos:
+                conocido.append(f"- Plazo de renta: {datos['plazo_renta']} (NO vuelvas a preguntar esto)")
+            if "tipo_propiedad" in datos:
+                conocido.append(f"- Tipo de propiedad: {datos['tipo_propiedad']} (NO vuelvas a preguntar esto)")
+            if "conoce_merida" in datos:
+                conocido.append(f"- Conoce Mérida: {datos['conoce_merida']} (NO vuelvas a preguntar esto)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
         if phone_number in ficha_confirmada:
