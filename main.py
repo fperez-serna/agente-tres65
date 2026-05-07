@@ -879,6 +879,11 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         datos = client_data.get(phone_number, {})
         if datos:
             conocido = []
+            # Inyectar primer nombre explícitamente para que GPT no use el apellido
+            if "nombre_completo" in datos:
+                primer_nombre = datos["nombre_completo"].split()[0]
+                conocido.append(f"- Nombre completo: {datos['nombre_completo']}")
+                conocido.append(f"- Primer nombre (usa SOLO este para saludar): {primer_nombre}")
             if "intencion" in datos:
                 conocido.append(f"- Ya dijo que es {datos['intencion']} (NO vuelvas a preguntar esto)")
             if "tipo" in datos:
@@ -896,6 +901,16 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             if "conoce_merida" in datos:
                 conocido.append(f"- Conoce Mérida: {datos['conoce_merida']} (NO vuelvas a preguntar esto)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
+
+        # Flujo de inversión completo — indicar a GPT qué sigue
+        if datos.get("intencion") == "Para invertir" and "presupuesto" in datos:
+            faltantes = []
+            if "correo" not in datos:
+                faltantes.append("correo")
+            if faltantes:
+                system += f"\n\nFLUJO INVERSIÓN: Ya tienes intencion={datos.get('intencion')}, uso_suelo={datos.get('uso_suelo','')}, presupuesto={datos.get('presupuesto')}, conoce_merida={datos.get('conoce_merida','')}. NO preguntes vivir/invertir ni comprar/rentar. Haz 1-2 preguntas de contexto para notas (zona, expectativa, plazo) si aún no las tienes, luego pide el correo."
+            else:
+                system += "\n\nFLUJO INVERSIÓN: Ya tienes todos los datos incluyendo correo. Genera la ficha y agrega CONFIRMAR_FICHA."
 
         if phone_number in ficha_confirmada:
             system += "\n\nLA FICHA DE ESTE CLIENTE YA FUE CONFIRMADA. Si en la conversación surge información nueva relevante (zona, recámaras, preferencias, preocupaciones, fechas, etc.), agrégala a las Notas, regenera la ficha completa actualizada con el mismo formato del PASO 7 y agrega CONFIRMAR_FICHA al final para que el cliente la vuelva a confirmar. Si el cliente solo platica sin dar info nueva, responde normal sin reenviar la ficha."
