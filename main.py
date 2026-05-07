@@ -61,6 +61,17 @@ def get_nombre_redis(phone_number):
         return _redis.get(f"nombre:{phone_number}") or ""
     return ""
 
+def client_data_save(phone_number):
+    if _redis and phone_number in client_data:
+        _redis.setex(f"cdata:{phone_number}", HISTORY_TTL, json.dumps(client_data[phone_number]))
+
+def client_data_load(phone_number):
+    if _redis:
+        raw = _redis.get(f"cdata:{phone_number}")
+        if raw:
+            client_data.setdefault(phone_number, {}).update(json.loads(raw))
+    return client_data.get(phone_number, {})
+
 def update_last_activity(phone_number):
     ts = datetime.now().isoformat()
     if _redis:
@@ -552,7 +563,7 @@ def send_zapier_ficha(phone_number):
     zapier_url = os.environ.get("ZAPIER_WEBHOOK")
     if not zapier_url:
         return
-    datos = client_data.get(phone_number, {})
+    datos = client_data_load(phone_number)  # carga desde Redis si RAM está vacío
     nombre_completo = datos.get("nombre_completo", "")
     partes = nombre_completo.split()
     ctx = ad_context.get(phone_number, {})
@@ -821,6 +832,7 @@ def receive_message():
                 elif button_id == "para_invertir":
                     client_data[phone_number]["intencion"] = button_title
                     client_data[phone_number]["tipo"] = "Compra"
+                    client_data_save(phone_number)
                     send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. qué tipo de inversión tienes en mente?")
                     send_whatsapp_uso_suelo_buttons(phone_number)
                     waiting_for_uso_suelo.add(phone_number)
@@ -855,9 +867,11 @@ def receive_message():
 
                 elif button_id in ("comprar", "rentar"):
                     client_data[phone_number]["tipo"] = button_title
+                    client_data_save(phone_number)
                     send_whatsapp_budget_list(phone_number, button_id)
                     return "OK", 200
 
+                client_data_save(phone_number)
                 user_message = button_title
 
         elif msg_type == "text":
@@ -1022,11 +1036,13 @@ def receive_message():
                 else:
                     waiting_for_ciudad.discard(phone_number)
                     client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
+                    client_data_save(phone_number)
 
             if phone_number in waiting_for_email:
                 if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
                     waiting_for_email.discard(phone_number)
                     client_data.setdefault(phone_number, {})["correo"] = user_message.strip()
+                    client_data_save(phone_number)
                 else:
                     send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
                     return "OK", 200
