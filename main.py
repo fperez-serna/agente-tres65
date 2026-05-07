@@ -693,14 +693,26 @@ def chatwoot_sync_message(phone_number, text, message_type="incoming", private=F
     if not os.environ.get("CHATWOOT_TOKEN"):
         return
     try:
-        datos    = client_data_load(phone_number)
-        c_id     = chatwoot_get_or_create_contact(phone_number, datos)
+        datos   = client_data_load(phone_number)
+        c_id    = chatwoot_get_or_create_contact(phone_number, datos)
         if not c_id:
             return
-        conv_id  = chatwoot_get_or_create_conversation(phone_number, c_id)
+        conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
         if not conv_id:
             return
-        chatwoot_send_message(conv_id, text, message_type, private=private)
+        base = chatwoot_base()
+        r = requests.post(f"{base}/conversations/{conv_id}/messages",
+                          json={"content": text, "message_type": message_type, "private": private},
+                          headers=_chatwoot_headers(), timeout=5)
+        # Si la conversación fue borrada en Chatwoot, limpiar caché y crear nueva
+        if r.status_code in (404, 422):
+            if _redis:
+                _redis.delete(f"cw_conv:{phone_number}")
+            conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+            if conv_id:
+                requests.post(f"{base}/conversations/{conv_id}/messages",
+                              json={"content": text, "message_type": message_type, "private": private},
+                              headers=_chatwoot_headers(), timeout=5)
     except Exception as e:
         print(f"Chatwoot sync error: {e}")
 
