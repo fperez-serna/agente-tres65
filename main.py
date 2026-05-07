@@ -508,15 +508,19 @@ def send_whatsapp_budget_list(to, tipo):
     print(f"WhatsApp budget list: {response.status_code} - {response.text}")
 
 
+STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "que",
+             "me", "mi", "mis", "se", "su", "sus", "un", "una", "por", "para", "con",
+             "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
+
 def extract_entities(phone_number, text):
-    """Extrae intención, tipo y ciudad del texto y los guarda en client_data."""
+    """Extrae intención, tipo, ciudad y zona del texto y los guarda en client_data."""
     low = text.lower()
     datos = client_data.setdefault(phone_number, {})
 
     if "intencion" not in datos:
-        if any(w in low for w in ["para vivir", "para mi familia", "para vivir", "para mudarnos", "para residir"]):
+        if any(w in low for w in ["para vivir", "para mi familia", "para mudarnos", "para residir", "para vivir"]):
             datos["intencion"] = "Para vivir"
-        elif any(w in low for w in ["invertir", "inversión", "inversion", "renta", "airbnb", "negocio"]):
+        elif any(w in low for w in ["invertir", "inversión", "inversion", "airbnb", "negocio"]):
             datos["intencion"] = "Para invertir"
 
     if "tipo" not in datos:
@@ -526,15 +530,30 @@ def extract_entities(phone_number, text):
             datos["tipo"] = "Rentar"
 
     if "ciudad" not in datos:
-        for marker in ["desde ", "de ", "vengo de ", "vivo en ", "me mudo de ", "mudándome de ", "mudandome de "]:
+        for marker in ["desde ", "vengo de ", "me mudo de ", "mudándome de ", "mudandome de ", "vivo en "]:
             if marker in low:
                 idx = low.index(marker) + len(marker)
-                ciudad_raw = text[idx:idx+30].split()[0:3]
-                ciudad = " ".join(ciudad_raw).strip(".,")
+                words = text[idx:idx+40].split()
+                ciudad_words = []
+                for w in words:
+                    if w.lower().strip(".,!?") in STOPWORDS:
+                        break
+                    ciudad_words.append(w.strip(".,!?"))
+                    if len(ciudad_words) == 2:
+                        break
+                ciudad = " ".join(ciudad_words)
                 if ciudad:
                     datos["ciudad"] = ciudad
                     waiting_for_ciudad.discard(phone_number)
                 break
+
+    # Detectar si ya dijo que no conoce las zonas
+    if "zona" not in datos:
+        if any(p in low for p in ["no sé de las zonas", "no se las zonas", "no conozco las zonas",
+                                   "no sé las zonas", "no sé qué zona", "no tengo zona",
+                                   "sin zona", "no sé de zonas"]):
+            datos["zona"] = "No conoce las zonas, necesita orientación del asesor"
+            waiting_for_ciudad.discard(phone_number)
 
     if datos:
         client_data_save(phone_number)
@@ -1204,6 +1223,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 conocido.append(f"- Presupuesto: {datos['presupuesto']} (NO vuelvas a preguntar esto)")
             if "ciudad" in datos:
                 conocido.append(f"- Viene de / vive en: {datos['ciudad']} (NO vuelvas a preguntar esto)")
+            if "zona" in datos:
+                conocido.append(f"- Zona: {datos['zona']} (NO vuelvas a preguntar esto)")
             if "uso_suelo" in datos:
                 conocido.append(f"- Tipo de inversión: {datos['uso_suelo']} (NO vuelvas a preguntar esto)")
             if "plazo_renta" in datos:
