@@ -2,6 +2,7 @@ from flask import Flask, request
 import openai
 import os
 import re
+import json
 import requests
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -12,7 +13,41 @@ load_dotenv()
 app = Flask(__name__)
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
-conversation_history = {}
+# Redis con fallback a RAM
+_memory_fallback = {}
+try:
+    import redis as redis_lib
+    _redis = redis_lib.from_url(os.environ.get("REDIS_URL", ""), decode_responses=True)
+    _redis.ping()
+    print("Redis conectado")
+except Exception:
+    _redis = None
+    print("Redis no disponible — usando RAM")
+
+HISTORY_TTL = 7 * 24 * 3600  # 7 días en segundos
+
+def history_get(phone_number):
+    if _redis:
+        raw = _redis.get(f"hist:{phone_number}")
+        return json.loads(raw) if raw else []
+    return _memory_fallback.get(phone_number, [])
+
+def history_set(phone_number, history):
+    if _redis:
+        _redis.setex(f"hist:{phone_number}", HISTORY_TTL, json.dumps(history))
+    else:
+        _memory_fallback[phone_number] = history
+
+def history_delete(phone_number):
+    if _redis:
+        _redis.delete(f"hist:{phone_number}")
+    else:
+        _memory_fallback.pop(phone_number, None)
+
+def history_exists(phone_number):
+    if _redis:
+        return _redis.exists(f"hist:{phone_number}")
+    return phone_number in _memory_fallback
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
@@ -419,7 +454,7 @@ def send_whatsapp_budget_list(to, tipo):
 
 
 def reset_conversation(phone_number):
-    conversation_history.pop(phone_number, None)
+    history_delete(phone_number)
     client_data.pop(phone_number, None)
     client_names.pop(phone_number, None)
     ad_context.pop(phone_number, None)
@@ -479,7 +514,7 @@ def cancel_followup(phone_number):
 def get_client_name(phone_number):
     if phone_number in client_names:
         return client_names[phone_number]
-    history = conversation_history.get(phone_number, [])
+    history = history_get(phone_number)
     if not history:
         return None
     try:
@@ -691,6 +726,12 @@ def receive_message():
         elif msg_type == "text":
             user_message = message["text"]["body"]
 
+            # Palabra clave secreta para reiniciar conversación
+            if user_message.strip().lower() == "reset365":
+                reset_conversation(phone_number)
+                send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
+                return "OK", 200
+
             # Detección de proveedor por keywords
             proveedor_keywords = ["ofrezco", "ofrecemos", "proveedor", "proveedora", "somos una empresa",
                                    "mi empresa", "nuestra empresa", "constructor", "constructora",
@@ -760,7 +801,7 @@ def receive_message():
             # Saludo en conversación existente
             saludos = {"hola", "hello", "hey", "buenas", "buenos días", "buenos dias",
                        "buen día", "buen dia", "buenas tardes", "buenas noches", "hi", "ey"}
-            if user_message.strip().lower() in saludos and phone_number in conversation_history and len(conversation_history[phone_number]) > 0:
+            if user_message.strip().lower() in saludos and history_exists(phone_number) and len(history_get(phone_number)) > 0:
                 name = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre")
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
@@ -828,12 +869,8 @@ def receive_message():
         else:
             return "OK", 200
 
-        is_first_message = phone_number not in conversation_history or len(conversation_history[phone_number]) == 0
-
-        if phone_number not in conversation_history:
-            conversation_history[phone_number] = []
-
-        history = conversation_history[phone_number]
+        history = history_get(phone_number)
+        is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
 
         system = SYSTEM_PROMPT
@@ -925,9 +962,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         reply = response.choices[0].message.content
         history.append({"role": "assistant", "content": reply})
-
-        if len(history) > 20:
-            conversation_history[phone_number] = history[-20:]
+        history_set(phone_number, history[-20:])
 
         def dispatch_reply(reply_text):
             tokens = {

@@ -3,3 +3,4 @@ openai
 python-dotenv
 requests
 APScheduler==3.10.4
+redis
