@@ -522,6 +522,38 @@ def send_whatsapp_budget_list(to, tipo):
     print(f"WhatsApp budget list: {response.status_code} - {response.text}")
 
 
+def extract_entities(phone_number, text):
+    """Extrae intención, tipo y ciudad del texto y los guarda en client_data."""
+    low = text.lower()
+    datos = client_data.setdefault(phone_number, {})
+
+    if "intencion" not in datos:
+        if any(w in low for w in ["para vivir", "para mi familia", "para vivir", "para mudarnos", "para residir"]):
+            datos["intencion"] = "Para vivir"
+        elif any(w in low for w in ["invertir", "inversión", "inversion", "renta", "airbnb", "negocio"]):
+            datos["intencion"] = "Para invertir"
+
+    if "tipo" not in datos:
+        if any(w in low for w in ["comprar", "compra", "adquirir"]):
+            datos["tipo"] = "Comprar"
+        elif any(w in low for w in ["rentar", "renta", "arrendar"]):
+            datos["tipo"] = "Rentar"
+
+    if "ciudad" not in datos:
+        for marker in ["desde ", "de ", "vengo de ", "vivo en ", "me mudo de ", "mudándome de ", "mudandome de "]:
+            if marker in low:
+                idx = low.index(marker) + len(marker)
+                ciudad_raw = text[idx:idx+30].split()[0:3]
+                ciudad = " ".join(ciudad_raw).strip(".,")
+                if ciudad:
+                    datos["ciudad"] = ciudad
+                    waiting_for_ciudad.discard(phone_number)
+                break
+
+    if datos:
+        client_data_save(phone_number)
+
+
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     texto = f"Mucho gusto {primer_nombre}, y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo. Voy a hacerte unas preguntas para crear tu ficha, nos va a tomar un minuto. Es rápido."
     send_whatsapp_message(phone_number, texto)
@@ -1051,8 +1083,9 @@ def receive_message():
                         _send_paso2(phone_number, words[0].capitalize(), user_message)
                         return "OK", 200
                 else:
-                    # Mensaje largo — GPT extrae el nombre y pre-detecta intención
+                    # Mensaje largo — extraer entidades y dejar que GPT continúe
                     waiting_for_name.discard(phone_number)
+                    extract_entities(phone_number, user_message)
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -1064,6 +1097,9 @@ def receive_message():
                 client_data_save(phone_number)
                 _send_paso2(phone_number, full_name.split()[0], user_message)
                 return "OK", 200
+
+            # Extracción de entidades en cualquier mensaje de texto libre
+            extract_entities(phone_number, user_message)
 
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
@@ -1106,8 +1142,8 @@ def receive_message():
 
         if is_first_message:
             system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
-        elif phone_number in waiting_for_name or (not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 3):
-            system += "\n\nINSTRUCCIÓN: El cliente acaba de dar su nombre y posiblemente más info. Extrae el nombre completo. Si mencionó intención (comprar/rentar/vivir/invertir), extráela también y avanza al paso correspondiente. Salúdalo por nombre y continúa el flujo natural sin volver a preguntar lo que ya dijo."
+        elif not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 4:
+            system += "\n\nINSTRUCCIÓN: El cliente acaba de presentarse con info adicional. Extrae el nombre completo del mensaje. Salúdalo por nombre con calidez y continúa el flujo SIN volver a preguntar lo que ya mencionó. Si ya tienes intencion/tipo/ciudad en LO QUE YA SABES, omite esos botones y avanza al siguiente paso que falte."
 
         if phone_number in waiting_for_apellido:
             system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
