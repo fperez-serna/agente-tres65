@@ -768,20 +768,25 @@ def receive_message():
 
             # Si el cliente escribe texto cuando esperamos un botón de inversión, reenviar botones
             if phone_number in waiting_for_uso_suelo:
-                send_whatsapp_message(phone_number, "usa los botones para seleccionar el tipo de inversión")
-                send_whatsapp_uso_suelo_buttons(phone_number)
+                _send_interactive_buttons(phone_number, "selecciona el tipo de inversión:", [
+                    {"id": "uso_comercial",    "title": "Uso comercial"},
+                    {"id": "uso_habitacional", "title": "Habitacional para renta"}
+                ])
                 return "OK", 200
             if phone_number in waiting_for_plazo_renta:
-                send_whatsapp_message(phone_number, "selecciona el plazo con los botones")
-                send_whatsapp_plazo_renta_buttons(phone_number)
+                _send_interactive_buttons(phone_number, "selecciona el plazo de renta:", [
+                    {"id": "largo_plazo", "title": "Largo plazo"},
+                    {"id": "corto_plazo", "title": "Corto plazo / Airbnb"}
+                ])
                 return "OK", 200
             if phone_number in waiting_for_tipo_propiedad:
-                send_whatsapp_message(phone_number, "selecciona el tipo de propiedad con el menú")
                 send_whatsapp_tipo_propiedad_inversion_list(phone_number)
                 return "OK", 200
             if phone_number in waiting_for_conoce_merida:
-                send_whatsapp_message(phone_number, "selecciona una opción con los botones")
-                send_whatsapp_conoce_merida_buttons(phone_number)
+                _send_interactive_buttons(phone_number, "conoces las zonas de Mérida?", [
+                    {"id": "conoce_merida",        "title": "Conozco Mérida"},
+                    {"id": "necesita_orientacion", "title": "Necesito orientación"}
+                ])
                 return "OK", 200
 
             if phone_number in waiting_for_ficha_correction:
