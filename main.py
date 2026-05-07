@@ -389,11 +389,12 @@ def send_whatsapp_tipo_propiedad_inversion_list(to):
             "action": {
                 "button": "Ver opciones",
                 "sections": [{"title": "Tipo de propiedad", "rows": [
-                    {"id": "prop_casa_privada", "title": "Casa en privada"},
-                    {"id": "prop_casa_calle",   "title": "Casa a pie de calle"},
-                    {"id": "prop_depto",        "title": "Departamento"},
-                    {"id": "prop_townhouse",    "title": "Townhouse"},
-                    {"id": "prop_terreno",      "title": "Terreno sin construcción"},
+                    {"id": "prop_casa_privada",  "title": "Casa en privada"},
+                    {"id": "prop_casa_calle",    "title": "Casa a pie de calle"},
+                    {"id": "prop_depto",         "title": "Departamento"},
+                    {"id": "prop_townhouse",     "title": "Townhouse"},
+                    {"id": "prop_terreno",       "title": "Terreno sin construcción"},
+                    {"id": "prop_orientacion",   "title": "Necesito orientación"},
                 ]}]
             }
         }
@@ -622,8 +623,12 @@ def receive_message():
                 if list_id.startswith("prop_"):
                     client_data[phone_number]["tipo_propiedad"] = list_title
                     waiting_for_tipo_propiedad.discard(phone_number)
-                    send_whatsapp_conoce_merida_buttons(phone_number)
-                    waiting_for_conoce_merida.add(phone_number)
+                    if list_id == "prop_orientacion":
+                        client_data[phone_number]["conoce_merida"] = "Necesita orientación"
+                        send_whatsapp_budget_list(phone_number, "comprar")
+                    else:
+                        send_whatsapp_conoce_merida_buttons(phone_number)
+                        waiting_for_conoce_merida.add(phone_number)
                     return "OK", 200
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
@@ -855,8 +860,11 @@ def receive_message():
                 # Ahora sí tiene nombre completo, GPT manda el PASO 2
 
             if phone_number in waiting_for_ciudad:
-                waiting_for_ciudad.discard(phone_number)
-                client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
+                if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
+                    waiting_for_ciudad.discard(phone_number)  # ignorar para inversión
+                else:
+                    waiting_for_ciudad.discard(phone_number)
+                    client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
 
             if phone_number in waiting_for_email:
                 if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
@@ -939,15 +947,14 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 conocido.append(f"- Conoce Mérida: {datos['conoce_merida']} (NO vuelvas a preguntar esto)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
-        # Flujo de inversión completo — indicar a GPT qué sigue
-        if datos.get("intencion") == "Para invertir" and "presupuesto" in datos:
-            faltantes = []
-            if "correo" not in datos:
-                faltantes.append("correo")
-            if faltantes:
-                system += f"\n\nFLUJO INVERSIÓN: Ya tienes intencion={datos.get('intencion')}, uso_suelo={datos.get('uso_suelo','')}, presupuesto={datos.get('presupuesto')}, conoce_merida={datos.get('conoce_merida','')}. NO preguntes vivir/invertir ni comprar/rentar. Haz 1-2 preguntas de contexto para notas (zona, expectativa, plazo) si aún no las tienes, luego pide el correo."
-            else:
-                system += "\n\nFLUJO INVERSIÓN: Ya tienes todos los datos incluyendo correo. Genera la ficha y agrega CONFIRMAR_FICHA."
+        # Flujo de inversión — nunca preguntar ciudad ni vivir/invertir
+        if datos.get("intencion") == "Para invertir":
+            system += "\n\nREGLA INVERSIÓN ABSOLUTA: Este cliente es de INVERSIÓN. NUNCA preguntes 'ya vives en Mérida', 'de dónde te mudas', ni nada sobre dónde vive. No es relevante. NUNCA preguntes vivir/invertir ni comprar/rentar — ya lo sabes."
+            if "presupuesto" in datos:
+                if "correo" not in datos:
+                    system += f"\n\nFLUJO INVERSIÓN: Tienes uso_suelo={datos.get('uso_suelo','')}, tipo_propiedad={datos.get('tipo_propiedad','')}, conoce_merida={datos.get('conoce_merida','')}, presupuesto={datos.get('presupuesto')}. Haz 1-2 preguntas de contexto para notas (zona, expectativa de retorno, plazo), luego pide el correo."
+                else:
+                    system += "\n\nFLUJO INVERSIÓN: Ya tienes todos los datos incluyendo correo. Genera la ficha y agrega CONFIRMAR_FICHA."
 
         if phone_number in ficha_confirmada:
             system += "\n\nLA FICHA DE ESTE CLIENTE YA FUE CONFIRMADA. Si en la conversación surge información nueva relevante (zona, recámaras, preferencias, preocupaciones, fechas, etc.), agrégala a las Notas, regenera la ficha completa actualizada con el mismo formato del PASO 7 y agrega CONFIRMAR_FICHA al final para que el cliente la vuelva a confirmar. Si el cliente solo platica sin dar info nueva, responde normal sin reenviar la ficha."
