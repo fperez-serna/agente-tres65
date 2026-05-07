@@ -676,10 +676,10 @@ def chatwoot_get_or_create_conversation(phone_number, contact_id):
         return conv_id
     return None
 
-def chatwoot_send_message(conv_id, text, message_type="outgoing"):
+def chatwoot_send_message(conv_id, text, message_type="outgoing", private=False):
     base = chatwoot_base()
     requests.post(f"{base}/conversations/{conv_id}/messages",
-                  json={"content": text, "message_type": message_type, "private": False},
+                  json={"content": text, "message_type": message_type, "private": private},
                   headers=_chatwoot_headers(), timeout=5)
 
 def chatwoot_add_label(conv_id, label):
@@ -688,7 +688,7 @@ def chatwoot_add_label(conv_id, label):
                   json={"labels": [label]},
                   headers=_chatwoot_headers(), timeout=5)
 
-def chatwoot_sync_message(phone_number, text, message_type="incoming"):
+def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
     if not os.environ.get("CHATWOOT_TOKEN"):
         return
@@ -700,7 +700,7 @@ def chatwoot_sync_message(phone_number, text, message_type="incoming"):
         conv_id  = chatwoot_get_or_create_conversation(phone_number, c_id)
         if not conv_id:
             return
-        chatwoot_send_message(conv_id, text, message_type)
+        chatwoot_send_message(conv_id, text, message_type, private=private)
     except Exception as e:
         print(f"Chatwoot sync error: {e}")
 
@@ -1514,8 +1514,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         dispatch_reply(reply)
 
-        # Sincronizar respuesta de María a Chatwoot
-        chatwoot_sync_message(phone_number, reply_clean, "outgoing")
+        # Sincronizar respuesta de María a Chatwoot como nota privada (no dispara webhook)
+        chatwoot_sync_message(phone_number, f"🤖 María: {reply_clean}", "outgoing", private=True)
 
         if is_first_message:
             waiting_for_name.add(phone_number)
