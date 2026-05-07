@@ -1039,7 +1039,20 @@ def receive_message():
         is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
 
+        hora_actual = datetime.now().hour
+        if hora_actual < 12:
+            momento = "mañana"
+            despedida = "buen día"
+        elif hora_actual < 19:
+            momento = "tarde"
+            despedida = "buenas tardes"
+        else:
+            momento = "noche"
+            despedida = "buenas noches"
+
         system = SYSTEM_PROMPT
+        system += f"\n\nHORA ACTUAL: Son las {hora_actual}:00 hrs — es de {momento}. Cuando te despidas o cierres un mensaje usa '{despedida}', nunca 'buen día' si es de tarde o noche."
+
         if is_first_message:
             system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre. NADA MÁS. Ignora el contenido del mensaje del cliente."
 
