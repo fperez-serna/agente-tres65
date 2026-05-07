@@ -199,7 +199,7 @@ ENTIDADES DE LA FICHA (en orden de prioridad):
 
 REGLA CRÍTICA: Si el cliente ya mencionó un dato en cualquier parte del historial, está en client_data o en su primer mensaje — NO lo vuelvas a pedir. No mandes botones para datos que ya existen. Los botones son shortcuts, no obligatorios.
 
-REGLA DE CIERRE: NUNCA cierres la conversación ni digas "te contactarán pronto" sin antes haber mandado la ficha (CONFIRMAR_FICHA) y los botones de contacto (MANDAR_BOTONES_CONTACTO). Sin esos dos pasos, el asesor no tiene cómo contactar al cliente.
+REGLA DE CIERRE: NUNCA cierres la conversación ni digas "te contactarán pronto" sin antes haber mandado la ficha (CONFIRMAR_FICHA) y los botones de contacto (MANDAR_BOTONES_CONTACTO). Sin esos dos pasos, el asesor no tiene cómo contactar al cliente. NUNCA escribas opciones de contacto como lista de texto (1. WhatsApp, 2. llamada) — SIEMPRE usa MANDAR_BOTONES_CONTACTO.
 
 Si el cliente da varios datos de golpe ("soy Fernanda, busco comprar para vivir, vengo de NY") — confirma con calidez lo que entendiste y pide solo lo que falta.
 
@@ -1170,7 +1170,7 @@ def receive_message():
                 client_data.setdefault(phone_number, {})["correo"] = email_match.group(0)
                 client_data_save(phone_number)
                 waiting_for_email.discard(phone_number)
-            elif phone_number in waiting_for_email:
+            elif phone_number in waiting_for_email and len(user_message.strip()) > 4:
                 send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
                 return "OK", 200
 
