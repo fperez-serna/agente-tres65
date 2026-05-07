@@ -568,6 +568,27 @@ def extract_entities(phone_number, text):
 
     if datos:
         client_data_save(phone_number)
+        _reconcile_states(phone_number, datos)
+
+
+def _reconcile_states(phone_number, datos):
+    """Limpia waiting_for_* cuando ya tenemos el dato por conversación natural."""
+    if "intencion" in datos:
+        waiting_for_uso_suelo.discard(phone_number)
+    if "tipo" in datos:
+        waiting_for_uso_suelo.discard(phone_number)
+        waiting_for_plazo_renta.discard(phone_number)
+        waiting_for_tipo_propiedad.discard(phone_number)
+    if "presupuesto" in datos:
+        pass  # presupuesto no tiene waiting_for propio
+    if "ciudad" in datos:
+        waiting_for_ciudad.discard(phone_number)
+    if "zona" in datos:
+        pass
+    if "correo" in datos:
+        waiting_for_email.discard(phone_number)
+    if datos.get("conoce_merida"):
+        waiting_for_conoce_merida.discard(phone_number)
 
 
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
