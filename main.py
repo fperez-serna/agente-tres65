@@ -581,7 +581,7 @@ def send_zapier_ficha(phone_number):
 
     # Fallback: extraer correo de la ficha si el campo estructurado está vacío
     if not datos.get("correo"):
-        ficha = last_ficha_text.get(phone_number, "")
+        ficha = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
         for line in ficha.splitlines():
             if "correo:" in line.lower():
                 correo_val = line.split(":", 1)[-1].strip()
@@ -610,7 +610,7 @@ def send_zapier_ficha(phone_number):
         "uso":             datos.get("intencion", ""),
         "presupuesto":     datos.get("presupuesto", ""),
         "ciudad":          datos.get("ciudad", ""),
-        "ficha_completa":  last_ficha_text.get(phone_number, ""),
+        "ficha_completa":  last_ficha_text.get(phone_number) or (_redis.get(f"ficha:{phone_number}") if _redis else ""),
         "origen":          origen,
         "source_id":       source_id,
         "source_url":      source_url,
@@ -1084,6 +1084,13 @@ def receive_message():
                     client_data.setdefault(phone_number, {})["ciudad"] = user_message.strip()
                     client_data_save(phone_number)
 
+            # Detectar email en cualquier mensaje si aún no lo tenemos
+            email_match = re.search(r'[^@\s]+@[^@\s]+\.[^@\s]{2,}', user_message.strip())
+            if email_match and not client_data.get(phone_number, {}).get("correo"):
+                client_data.setdefault(phone_number, {})["correo"] = email_match.group(0)
+                client_data_save(phone_number)
+                waiting_for_email.discard(phone_number)
+
             if phone_number in waiting_for_email:
                 if re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]{2,}$', user_message.strip()):
                     waiting_for_email.discard(phone_number)
@@ -1231,6 +1238,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
             if "CONFIRMAR_FICHA" in reply_text:
                 ficha_text = reply_text.replace("CONFIRMAR_FICHA", "").strip()
                 last_ficha_text[phone_number] = ficha_text
+                if _redis:
+                    _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
                 send_whatsapp_ficha_confirmation(phone_number, ficha_text)
                 return
             if "PREGUNTAR_TEMA_ASESOR" in reply_text:
