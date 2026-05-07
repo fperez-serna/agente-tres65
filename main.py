@@ -537,7 +537,7 @@ def send_whatsapp_budget_list(to, tipo):
 
 
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
-    texto = f"Mucho gusto {primer_nombre}. y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo"
+    texto = f"Mucho gusto {primer_nombre}, y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo. Voy a hacerte unas preguntas para crear tu ficha, nos va a tomar un minuto. Es rápido."
     send_whatsapp_message(phone_number, texto)
     send_whatsapp_vivir_invertir_buttons(phone_number)
     history = history_get(phone_number)
