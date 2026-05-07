@@ -1143,7 +1143,7 @@ def receive_message():
         if is_first_message:
             system += "\n\nINSTRUCCIÓN INMEDIATA: Este es el primer mensaje. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
         elif not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 4:
-            system += "\n\nINSTRUCCIÓN: El cliente acaba de presentarse con info adicional. Extrae el nombre completo del mensaje. Salúdalo por nombre con calidez y continúa el flujo SIN volver a preguntar lo que ya mencionó. Si ya tienes intencion/tipo/ciudad en LO QUE YA SABES, omite esos botones y avanza al siguiente paso que falte."
+            system += "\n\nINSTRUCCIÓN: El cliente se presentó con info adicional. Responde de forma cálida confirmando lo que entendiste (ej: 'qué gusto Fernanda, entiendo que buscas comprar una casa para vivir en Mérida') y pide solo el apellido para completar su ficha. No hagas más preguntas."
 
         if phone_number in waiting_for_apellido:
             system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
