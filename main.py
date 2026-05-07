@@ -635,6 +635,10 @@ def receive_message():
                     user_message = "prefiero platicarlo con el asesor"
                 else:
                     client_data[phone_number]["presupuesto"] = list_title
+                    # Para inversión: ir directo a preguntas de contexto, sin pasar por GPT libre
+                    if client_data[phone_number].get("intencion") == "Para invertir":
+                        send_whatsapp_message(phone_number, "ya tienes alguna zona de Mérida en mente o prefieres que el asesor te oriente según el tipo de inversión que buscas?")
+                        return "OK", 200
                     user_message = list_title
 
             # Respuesta de botón
