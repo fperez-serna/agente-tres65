@@ -913,7 +913,7 @@ def hora_merida():
 
 def es_horario_silencioso():
     h = hora_merida()
-    return h < 9 or h >= 22  # silencio entre 10pm y 9am
+    return h < 9 or h >= 21  # silencio entre 9pm y 9am
 
 def send_followup(phone_number):
     if es_horario_silencioso():
