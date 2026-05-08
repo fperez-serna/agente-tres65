@@ -784,11 +784,13 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
 
 
 def reset_conversation(phone_number):
+    # RAM
     history_delete(phone_number)
     client_data.pop(phone_number, None)
     client_names.pop(phone_number, None)
     ad_context.pop(phone_number, None)
     pending_decision.pop(phone_number, None)
+    last_ficha_text.pop(phone_number, None)
     waiting_for_email.discard(phone_number)
     waiting_for_name.discard(phone_number)
     waiting_for_apellido.discard(phone_number)
@@ -801,9 +803,15 @@ def reset_conversation(phone_number):
     waiting_for_plazo_renta.discard(phone_number)
     waiting_for_tipo_propiedad.discard(phone_number)
     waiting_for_conoce_merida.discard(phone_number)
-    last_ficha_text.pop(phone_number, None)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
+    # Redis
+    if _redis:
+        for key in [f"nombre:{phone_number}", f"cdata:{phone_number}",
+                    f"ficha:{phone_number}", f"last_activity:{phone_number}",
+                    f"cw_conv:{phone_number}", f"agent_active:{phone_number}",
+                    f"template_sent:{phone_number}", f"followup_{phone_number}"]:
+            _redis.delete(key)
 
 
 def send_zapier_ficha(phone_number):
