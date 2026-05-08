@@ -1221,8 +1221,35 @@ def receive_message():
                 client_data_save(phone_number)
                 user_message = button_title
 
-        elif msg_type == "text":
-            user_message = message["text"]["body"]
+        elif msg_type in ("audio", "text"):
+            if msg_type == "audio":
+                try:
+                    import io
+                    media_id = message["audio"]["id"]
+                    token = os.environ.get("WHATSAPP_TOKEN")
+                    url_resp = requests.get(
+                        f"https://graph.facebook.com/v17.0/{media_id}",
+                        headers={"Authorization": f"Bearer {token}"}, timeout=10
+                    )
+                    media_url = url_resp.json().get("url", "")
+                    audio_resp = requests.get(
+                        media_url,
+                        headers={"Authorization": f"Bearer {token}"}, timeout=30
+                    )
+                    audio_file = io.BytesIO(audio_resp.content)
+                    audio_file.name = "audio.ogg"
+                    transcript = openai.audio.transcriptions.create(
+                        model="whisper-1", file=audio_file, language="es"
+                    )
+                    user_message = transcript.text.strip()
+                    print(f"[{phone_number}] Audio transcrito: {user_message[:80]}")
+                    send_whatsapp_message(phone_number, f"escuché: _{user_message}_")
+                except Exception as e:
+                    print(f"Error transcribiendo audio: {e}")
+                    send_whatsapp_message(phone_number, "no pude escuchar bien el audio, puedes escribirlo?")
+                    return "OK", 200
+            else:
+                user_message = message["text"]["body"]
 
             # Palabras clave secretas — prioridad ABSOLUTA, incluso sobre agente activo
             if user_message.strip().lower() == "reset365":
