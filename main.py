@@ -716,6 +716,23 @@ def chatwoot_sync_message(phone_number, text, message_type="incoming", private=F
     except Exception as e:
         print(f"Chatwoot sync error: {e}")
 
+def chatwoot_update_contact_name(phone_number, nombre_completo):
+    """Actualiza el nombre del contacto en Chatwoot."""
+    if not os.environ.get("CHATWOOT_TOKEN") or not nombre_completo:
+        return
+    try:
+        datos = client_data_load(phone_number)
+        c_id  = chatwoot_get_or_create_contact(phone_number, datos)
+        if not c_id:
+            return
+        base = chatwoot_base()
+        requests.put(f"{base}/contacts/{c_id}",
+                     json={"name": nombre_completo},
+                     headers=_chatwoot_headers(), timeout=5)
+    except Exception as e:
+        print(f"Chatwoot update name error: {e}")
+
+
 def chatwoot_mark_qualified(phone_number, ficha_text):
     """Etiqueta la conversación como lista para asesor y añade la ficha."""
     if not os.environ.get("CHATWOOT_TOKEN"):
@@ -1317,6 +1334,7 @@ def receive_message():
                         client_data.setdefault(phone_number, {})["nombre_completo"] = full
                         save_nombre_redis(phone_number, full)
                         client_data_save(phone_number)
+                        chatwoot_update_contact_name(phone_number, full)
                         _send_paso2(phone_number, words[0].capitalize(), user_message)
                         return "OK", 200
                 else:
@@ -1332,6 +1350,7 @@ def receive_message():
                 client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
                 save_nombre_redis(phone_number, full_name)
                 client_data_save(phone_number)
+                chatwoot_update_contact_name(phone_number, full_name)
                 _send_paso2(phone_number, full_name.split()[0], user_message)
                 return "OK", 200
 
