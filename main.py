@@ -110,6 +110,9 @@ def send_followup_template(phone_number, name):
 def check_and_send_24h_followups():
     if not _redis:
         return
+    if es_horario_silencioso():
+        print("Follow-up 23h: horario silencioso, se omite este ciclo")
+        return
     try:
         phones  = _redis.smembers("active_phones")
         cutoff  = datetime.now() - timedelta(hours=23)
@@ -904,7 +907,31 @@ def get_client_name(phone_number):
     return None
 
 
+def hora_merida():
+    from datetime import timezone, timedelta
+    return datetime.now(timezone(timedelta(hours=-6))).hour
+
+def es_horario_silencioso():
+    h = hora_merida()
+    return h < 9 or h >= 22  # silencio entre 10pm y 9am
+
 def send_followup(phone_number):
+    if es_horario_silencioso():
+        # Reprogramar para las 9am siguiente
+        from datetime import timezone, timedelta
+        merida_tz = timezone(timedelta(hours=-6))
+        ahora = datetime.now(merida_tz)
+        manana_9am = ahora.replace(hour=9, minute=0, second=0, microsecond=0)
+        if ahora.hour >= 9:
+            manana_9am = manana_9am + timedelta(days=1)
+        delay = (manana_9am - ahora).total_seconds()
+        job_id = f"followup_{phone_number}"
+        scheduler.add_job(send_followup, "date",
+                          run_date=datetime.now() + timedelta(seconds=delay),
+                          args=[phone_number], id=job_id + "_retry",
+                          replace_existing=True)
+        print(f"[{phone_number}] Follow-up diferido a las 9am Mérida")
+        return
     name = get_client_name(phone_number)
     greeting = f"hola {name}" if name else "hola"
     text = f"{greeting}, sigues interesado en encontrar algo en Mérida? aquí sigo si quieres continuar la búsqueda, sin presión"
@@ -1456,8 +1483,9 @@ def receive_message():
         is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
 
-        from zoneinfo import ZoneInfo
-        hora_actual = datetime.now(ZoneInfo("America/Merida")).hour
+        from datetime import timezone, timedelta
+        merida_tz = timezone(timedelta(hours=-6))
+        hora_actual = datetime.now(merida_tz).hour
         if hora_actual < 12:
             momento = "mañana"
             despedida = "buen día"
