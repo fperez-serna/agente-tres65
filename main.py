@@ -1109,6 +1109,19 @@ def receive_message():
                     except Exception:
                         pass
 
+        # Sincronizar botones e interacciones a Chatwoot
+        if msg_type == "interactive":
+            try:
+                interactive = message.get("interactive", {})
+                if interactive.get("type") == "button_reply":
+                    btn_title = interactive["button_reply"].get("title", "")
+                    chatwoot_sync_message(phone_number, f"[Botón] {btn_title}", "incoming")
+                elif interactive.get("type") == "list_reply":
+                    list_title = interactive["list_reply"].get("title", "")
+                    chatwoot_sync_message(phone_number, f"[Lista] {list_title}", "incoming")
+            except Exception:
+                pass
+
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
             reset_conversation(phone_number)
