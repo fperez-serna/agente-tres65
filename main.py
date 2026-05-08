@@ -1632,7 +1632,16 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 text_part = text_part.replace(t, "")
             text_part = text_part.strip()
 
-            # --- Step 2: send the plain text first (if any) ---
+            # --- Step 2: process CONFIRMAR_FICHA first (before sending text, to avoid duplicate) ---
+            if "CONFIRMAR_FICHA" in reply_text:
+                ficha_text = text_part  # the cleaned text IS the ficha body
+                last_ficha_text[phone_number] = ficha_text
+                if _redis:
+                    _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
+                send_whatsapp_ficha_confirmation(phone_number, ficha_text)
+                return  # ficha confirmation is terminal — nothing else needed
+
+            # --- Step 3: send the plain text (only if no CONFIRMAR_FICHA) ---
             if text_part:
                 send_whatsapp_message(phone_number, text_part)
                 low = text_part.lower()
@@ -1641,15 +1650,6 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 if any(p in low for p in ["me compartes tu correo", "me das tu correo", "tu correo",
                                            "correo electrónico", "correo para", "comparte tu correo", "correo?"]):
                     waiting_for_email.add(phone_number)
-
-            # --- Step 3: process each button/action token that appears ---
-            if "CONFIRMAR_FICHA" in reply_text:
-                ficha_text = text_part  # the cleaned text IS the ficha body
-                last_ficha_text[phone_number] = ficha_text
-                if _redis:
-                    _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
-                send_whatsapp_ficha_confirmation(phone_number, ficha_text)
-                return  # ficha confirmation is terminal — nothing else needed
 
             if "PREGUNTAR_TEMA_ASESOR" in reply_text:
                 waiting_for_asesor_topic.add(phone_number)
