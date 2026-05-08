@@ -827,7 +827,17 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
         conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
         if not conv_id:
             return
-        chatwoot_add_label(conv_id, "listo-para-asesor")
+        # Etiquetas según datos de la ficha
+        labels = ["listo-para-asesor"]
+        tipo = datos.get("tipo", "").lower()
+        if "compra" in tipo:
+            labels.append("compra")
+        elif "renta" in tipo:
+            labels.append("renta")
+        if datos.get("intencion") == "Para invertir":
+            labels.append("inversion")
+        for label in labels:
+            chatwoot_add_label(conv_id, label)
         chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}", "activity")
     except Exception as e:
         print(f"Chatwoot qualify error: {e}")
@@ -1084,7 +1094,20 @@ def receive_message():
         if msg_type == "text":
             _body = message.get("text", {}).get("body", "")
             if _body:
-                chatwoot_sync_message(phone_number, _body, "incoming")  # cliente respondió → puede recibir template de nuevo en 23h
+                chatwoot_sync_message(phone_number, _body, "incoming")
+                # Etiqueta de origen en el primer mensaje
+                if not history_exists(phone_number):
+                    referral = message.get("referral", {})
+                    origen_label = "anuncio-meta" if referral.get("source_type") == "ad" else "link-directo"
+                    try:
+                        datos_orig = client_data_load(phone_number)
+                        c_id_orig  = chatwoot_get_or_create_contact(phone_number, datos_orig)
+                        if c_id_orig:
+                            conv_orig = chatwoot_get_or_create_conversation(phone_number, c_id_orig)
+                            if conv_orig:
+                                chatwoot_add_label(conv_orig, origen_label)
+                    except Exception:
+                        pass
 
         # Proveedor que intenta acceder a un asesor: reiniciar conversación como cliente
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
