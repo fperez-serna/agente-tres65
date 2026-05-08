@@ -818,6 +818,34 @@ def chatwoot_sync_message(phone_number, text, message_type="incoming", private=F
     except Exception as e:
         print(f"Chatwoot sync error: {e}")
 
+def chatwoot_get_or_create_team(team_name):
+    """Busca un equipo por nombre o lo crea si no existe. Retorna el team_id."""
+    base = chatwoot_base()
+    # Buscar equipos existentes
+    r = requests.get(f"{base}/teams", headers=_chatwoot_headers(), timeout=5)
+    if r.ok:
+        for team in r.json():
+            if team.get("name", "").lower() == team_name.lower():
+                return team["id"]
+    # No existe — crear
+    r = requests.post(f"{base}/teams",
+                      json={"name": team_name},
+                      headers=_chatwoot_headers(), timeout=5)
+    if r.ok:
+        team_id = r.json().get("id")
+        print(f"Chatwoot team creado: {team_name} (id={team_id})")
+        return team_id
+    return None
+
+
+def chatwoot_assign_team(conv_id, team_id):
+    """Asigna una conversación a un equipo."""
+    base = chatwoot_base()
+    requests.patch(f"{base}/conversations/{conv_id}/assignments",
+                   json={"team_id": team_id},
+                   headers=_chatwoot_headers(), timeout=5)
+
+
 def chatwoot_update_contact_name(phone_number, nombre_completo):
     """Actualiza el nombre del contacto en Chatwoot."""
     if not os.environ.get("CHATWOOT_TOKEN") or not nombre_completo:
@@ -1122,7 +1150,7 @@ def receive_message():
             _body = message.get("text", {}).get("body", "")
             if _body:
                 chatwoot_sync_message(phone_number, _body, "incoming")
-                # Etiqueta de origen en el primer mensaje
+                # Etiqueta de origen + equipo automático en el primer mensaje
                 if not history_exists(phone_number):
                     referral = message.get("referral", {})
                     origen_label = "anuncio-meta" if referral.get("source_type") == "ad" else "link-directo"
@@ -1133,8 +1161,14 @@ def receive_message():
                             conv_orig = chatwoot_get_or_create_conversation(phone_number, c_id_orig)
                             if conv_orig:
                                 chatwoot_add_label(conv_orig, origen_label)
-                    except Exception:
-                        pass
+                                # Si viene de anuncio, crear/buscar equipo con el nombre del anuncio
+                                if referral.get("source_type") == "ad" and referral.get("headline"):
+                                    team_name = referral["headline"][:50]
+                                    team_id = chatwoot_get_or_create_team(team_name)
+                                    if team_id:
+                                        chatwoot_assign_team(conv_orig, team_id)
+                    except Exception as e:
+                        print(f"Chatwoot origen error: {e}")
 
         # Sincronizar botones e interacciones a Chatwoot
         if msg_type == "interactive":
