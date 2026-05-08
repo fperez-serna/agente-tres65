@@ -134,7 +134,7 @@ def check_and_send_24h_followups():
 last_maria_message_time = {}
 follow_up_jobs = {}
 client_names = {}
-pending_decision = {}        # clientes que vieron los botones pero no han decidido
+pending_decision = {}        # clientes que vieron los botones pero no han decidido (con TTL en Redis)
 ad_context = {}              # contexto del anuncio por el que llegó el lead
 waiting_for_email = set()             # números esperando correo
 waiting_for_name = set()              # números esperando que den su nombre (después del saludo)
@@ -145,10 +145,6 @@ waiting_for_asesor_topic = set()      # clientes a los que se les preguntó el t
 algo_mas_mode = set()                 # clientes en flujo exploratorio
 waiting_for_ficha_correction = set()  # clientes que dijeron que algo está mal en su ficha
 ficha_confirmada = set()              # clientes cuya ficha ya fue confirmada
-waiting_for_uso_suelo = set()         # esperando click en comercial/habitacional
-waiting_for_plazo_renta = set()       # esperando click en largo/corto plazo
-waiting_for_tipo_propiedad = set()    # esperando click en tipo de propiedad
-waiting_for_conoce_merida = set()     # esperando click en conoce mérida
 last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
@@ -359,6 +355,9 @@ def send_whatsapp_contact_buttons(to):
     print(f"WhatsApp buttons: {response.status_code} - {response.text}")
     if response.ok:
         pending_decision[to] = True
+        # Also persist with TTL so stale state expires automatically (2 hours)
+        if _redis:
+            _redis.setex(f"pending_decision:{to}", 2 * 3600, "1")
 
 
 def send_whatsapp_calendly_button(to):
@@ -612,22 +611,71 @@ def extract_entities(phone_number, text):
 
 def _reconcile_states(phone_number, datos):
     """Limpia waiting_for_* cuando ya tenemos el dato por conversación natural."""
-    if "intencion" in datos:
-        waiting_for_uso_suelo.discard(phone_number)
-    if "tipo" in datos:
-        waiting_for_uso_suelo.discard(phone_number)
-        waiting_for_plazo_renta.discard(phone_number)
-        waiting_for_tipo_propiedad.discard(phone_number)
-    if "presupuesto" in datos:
-        pass  # presupuesto no tiene waiting_for propio
     if "ciudad" in datos:
         waiting_for_ciudad.discard(phone_number)
-    if "zona" in datos:
-        pass
     if "correo" in datos:
         waiting_for_email.discard(phone_number)
-    if datos.get("conoce_merida"):
-        waiting_for_conoce_merida.discard(phone_number)
+
+
+def next_missing_field(phone_number):
+    """Returns the next entity name missing from client_data, or None if ficha is complete."""
+    datos = client_data_load(phone_number)
+    if not datos.get("nombre_completo"):
+        return "nombre"
+    if not datos.get("intencion"):
+        return "intencion"
+    if datos.get("intencion") == "Para vivir":
+        if not datos.get("tipo"):
+            return "tipo"
+    elif datos.get("intencion") == "Para invertir":
+        if not datos.get("uso_suelo"):
+            return "uso_suelo"
+        if datos.get("uso_suelo") == "Habitacional":
+            if not datos.get("plazo_renta"):
+                return "plazo_renta"
+            if not datos.get("tipo_propiedad"):
+                return "tipo_propiedad"
+        if not datos.get("conoce_merida"):
+            return "conoce_merida"
+    if not datos.get("presupuesto"):
+        return "presupuesto"
+    if not datos.get("ciudad") and datos.get("intencion") == "Para vivir":
+        return "ciudad"
+    if not datos.get("correo"):
+        return "correo"
+    return None  # ficha completa
+
+
+def advance_flow(phone_number):
+    """Send the appropriate button for the next missing field.
+    Returns True if a button was sent, False if GPT should handle it."""
+    field = next_missing_field(phone_number)
+    datos = client_data.get(phone_number, {})
+
+    if field == "intencion":
+        send_whatsapp_vivir_invertir_buttons(phone_number)
+        return True
+    elif field == "tipo":
+        send_whatsapp_comprar_rentar_buttons(phone_number)
+        return True
+    elif field == "uso_suelo":
+        send_whatsapp_uso_suelo_buttons(phone_number)
+        return True
+    elif field == "plazo_renta":
+        send_whatsapp_plazo_renta_buttons(phone_number)
+        return True
+    elif field == "tipo_propiedad":
+        send_whatsapp_tipo_propiedad_inversion_list(phone_number)
+        return True
+    elif field == "conoce_merida":
+        send_whatsapp_conoce_merida_buttons(phone_number)
+        return True
+    elif field == "presupuesto":
+        tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
+        send_whatsapp_budget_list(phone_number, tipo)
+        return True
+    # ciudad, correo, None → let GPT handle
+    return False
 
 
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
@@ -637,17 +685,7 @@ def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     datos = client_data.get(phone_number, {})
     print(f"[{phone_number}] _send_paso2 datos: intencion={datos.get('intencion')} tipo={datos.get('tipo')} presupuesto={datos.get('presupuesto')}")
 
-    boton_enviado = False
-    if not datos.get("intencion"):
-        send_whatsapp_vivir_invertir_buttons(phone_number)
-        boton_enviado = True
-    elif not datos.get("tipo") and datos.get("intencion") == "Para vivir":
-        send_whatsapp_comprar_rentar_buttons(phone_number)
-        boton_enviado = True
-    elif not datos.get("presupuesto"):
-        tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
-        send_whatsapp_budget_list(phone_number, tipo)
-        boton_enviado = True
+    boton_enviado = advance_flow(phone_number)
 
     if not boton_enviado:
         # Ya tenemos entidades básicas — pedir lo siguiente via GPT
@@ -811,10 +849,6 @@ def reset_conversation(phone_number):
     waiting_for_asesor_topic.discard(phone_number)
     waiting_for_ficha_correction.discard(phone_number)
     ficha_confirmada.discard(phone_number)
-    waiting_for_uso_suelo.discard(phone_number)
-    waiting_for_plazo_renta.discard(phone_number)
-    waiting_for_tipo_propiedad.discard(phone_number)
-    waiting_for_conoce_merida.discard(phone_number)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
     # Redis
@@ -822,7 +856,8 @@ def reset_conversation(phone_number):
         for key in [f"nombre:{phone_number}", f"cdata:{phone_number}",
                     f"ficha:{phone_number}", f"last_activity:{phone_number}",
                     f"cw_conv:{phone_number}", f"agent_active:{phone_number}",
-                    f"template_sent:{phone_number}", f"followup_{phone_number}"]:
+                    f"template_sent:{phone_number}", f"followup_{phone_number}",
+                    f"pending_decision:{phone_number}"]:
             _redis.delete(key)
 
 
@@ -1060,6 +1095,8 @@ def receive_message():
         if msg_type == "interactive":
             interactive_type = message["interactive"].get("type")
             pending_decision.pop(phone_number, None)
+            if _redis:
+                _redis.delete(f"pending_decision:{phone_number}")
 
             # Respuesta de lista
             if interactive_type == "list_reply":
@@ -1070,14 +1107,13 @@ def receive_message():
 
                 if list_id.startswith("prop_"):
                     client_data[phone_number]["tipo_propiedad"] = list_title
-                    waiting_for_tipo_propiedad.discard(phone_number)
                     client_data_save(phone_number)
                     if list_id == "prop_orientacion":
                         client_data[phone_number]["conoce_merida"] = "Necesita orientación"
-                        send_whatsapp_budget_list(phone_number, "comprar")
+                        client_data_save(phone_number)
+                        advance_flow(phone_number)
                     else:
-                        send_whatsapp_conoce_merida_buttons(phone_number)
-                        waiting_for_conoce_merida.add(phone_number)
+                        advance_flow(phone_number)
                     return "OK", 200
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
@@ -1152,6 +1188,7 @@ def receive_message():
 
                 elif button_id == "ficha_incorrecta":
                     waiting_for_ficha_correction.add(phone_number)
+                    ficha_confirmada.discard(phone_number)  # clear confirmed flag so ficha can be re-confirmed
                     send_whatsapp_message(phone_number, "dime qué dato está mal y lo corrijo ahora mismo")
                     return "OK", 200
 
@@ -1188,14 +1225,7 @@ def receive_message():
                     client_data_save(phone_number)
                     history = history_get(phone_number)
                     history.append({"role": "user", "content": button_title})
-                    if not client_data[phone_number].get("tipo"):
-                        send_whatsapp_comprar_rentar_buttons(phone_number)
-                        history.append({"role": "assistant", "content": "tenemos opciones de todo tipo disponibles en Mérida. qué se adapta mejor a tu plan?"})
-                    else:
-                        # Ya sabemos el tipo — mandar presupuesto directo
-                        tipo = "rentar" if client_data[phone_number].get("tipo", "").lower() == "rentar" else "comprar"
-                        send_whatsapp_budget_list(phone_number, tipo)
-                        history.append({"role": "assistant", "content": "ya tengo tu tipo de búsqueda. cuál es tu rango de presupuesto?"})
+                    advance_flow(phone_number)
                     history_set(phone_number, history[-20:])
                     return "OK", 200
 
@@ -1204,39 +1234,31 @@ def receive_message():
                     client_data[phone_number]["tipo"] = "Compra"
                     client_data_save(phone_number)
                     send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. qué tipo de inversión tienes en mente?")
-                    send_whatsapp_uso_suelo_buttons(phone_number)
-                    waiting_for_uso_suelo.add(phone_number)
+                    advance_flow(phone_number)
                     return "OK", 200
 
                 elif button_id == "uso_comercial":
                     client_data[phone_number]["uso_suelo"] = "Comercial"
-                    waiting_for_uso_suelo.discard(phone_number)
                     client_data_save(phone_number)
-                    send_whatsapp_conoce_merida_buttons(phone_number)
-                    waiting_for_conoce_merida.add(phone_number)
+                    advance_flow(phone_number)
                     return "OK", 200
 
                 elif button_id == "uso_habitacional":
                     client_data[phone_number]["uso_suelo"] = "Habitacional"
-                    waiting_for_uso_suelo.discard(phone_number)
                     client_data_save(phone_number)
-                    send_whatsapp_plazo_renta_buttons(phone_number)
-                    waiting_for_plazo_renta.add(phone_number)
+                    advance_flow(phone_number)
                     return "OK", 200
 
                 elif button_id in ("largo_plazo", "corto_plazo"):
                     client_data[phone_number]["plazo_renta"] = button_title
-                    waiting_for_plazo_renta.discard(phone_number)
                     client_data_save(phone_number)
-                    send_whatsapp_tipo_propiedad_inversion_list(phone_number)
-                    waiting_for_tipo_propiedad.add(phone_number)
+                    advance_flow(phone_number)
                     return "OK", 200
 
                 elif button_id in ("conoce_merida", "necesita_orientacion"):
                     client_data[phone_number]["conoce_merida"] = button_title
-                    waiting_for_conoce_merida.discard(phone_number)
                     client_data_save(phone_number)
-                    send_whatsapp_budget_list(phone_number, "comprar")
+                    advance_flow(phone_number)
                     return "OK", 200
 
                 elif button_id in ("comprar", "rentar"):
@@ -1318,6 +1340,9 @@ def receive_message():
 
             if phone_number in waiting_for_asesor_topic:
                 waiting_for_asesor_topic.discard(phone_number)
+                # Save the topic before connecting so it's available to the advisor
+                client_data.setdefault(phone_number, {})["asesor_topic"] = user_message
+                client_data_save(phone_number)
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
 
@@ -1368,7 +1393,11 @@ def receive_message():
                 else:
                     ad_context[phone_number] = {"texto": "", "source_id": "", "source_url": "", "origen": "link_directo"}
 
-            if pending_decision.get(phone_number):
+            # pending_decision: check RAM first, then Redis (for persistence across restarts)
+            _in_pending = pending_decision.get(phone_number) or (
+                _redis and _redis.exists(f"pending_decision:{phone_number}")
+            )
+            if _in_pending:
                 send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
                 send_whatsapp_contact_buttons(phone_number)
                 return "OK", 200
@@ -1380,31 +1409,6 @@ def receive_message():
                 name = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre")
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
-                return "OK", 200
-
-            # Si el cliente escribe texto cuando esperamos un botón de inversión,
-            # reenviar botones SOLO si la entidad aún no fue obtenida del texto
-            datos_ahora = client_data.get(phone_number, {})
-            if phone_number in waiting_for_uso_suelo and not datos_ahora.get("uso_suelo"):
-                _send_interactive_buttons(phone_number, "selecciona el tipo de inversión:", [
-                    {"id": "uso_comercial",    "title": "Uso comercial"},
-                    {"id": "uso_habitacional", "title": "Renta habitacional"}
-                ])
-                return "OK", 200
-            if phone_number in waiting_for_plazo_renta and not datos_ahora.get("plazo_renta"):
-                _send_interactive_buttons(phone_number, "selecciona el plazo de renta:", [
-                    {"id": "largo_plazo", "title": "Largo plazo"},
-                    {"id": "corto_plazo", "title": "Corto plazo / Airbnb"}
-                ])
-                return "OK", 200
-            if phone_number in waiting_for_tipo_propiedad and not datos_ahora.get("tipo_propiedad"):
-                send_whatsapp_tipo_propiedad_inversion_list(phone_number)
-                return "OK", 200
-            if phone_number in waiting_for_conoce_merida and not datos_ahora.get("conoce_merida"):
-                _send_interactive_buttons(phone_number, "conoces las zonas de Mérida?", [
-                    {"id": "conoce_merida",        "title": "Conozco Mérida"},
-                    {"id": "necesita_orientacion", "title": "Necesito orientación"}
-                ])
                 return "OK", 200
 
             if phone_number in waiting_for_ficha_correction:
@@ -1442,9 +1446,8 @@ def receive_message():
                         _send_paso2(phone_number, words[0].capitalize(), user_message)
                         return "OK", 200
                 else:
-                    # Mensaje largo — extraer entidades y dejar que GPT continúe
+                    # Mensaje largo — entidades ya extraídas en PASO 0; dejar que GPT continúe
                     waiting_for_name.discard(phone_number)
-                    extract_entities(phone_number, user_message)
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -1499,10 +1502,7 @@ def receive_message():
         system = SYSTEM_PROMPT
         system += f"\n\nHORA ACTUAL: Son las {hora_actual}:00 hrs — es de {momento}. Cuando te despidas o cierres un mensaje usa '{despedida}', nunca 'buen día' si es de tarde o noche."
 
-        # Extraer entidades del mensaje ANTES de decidir qué instrucción dar
-        if msg_type == "text":
-            extract_entities(phone_number, user_message)
-
+        # extract_entities was already called at PASO 0 for text/audio — don't call again
         datos_frescos = client_data.get(phone_number, {})
 
         if is_first_message:
@@ -1615,47 +1615,61 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         history_set(phone_number, history[-20:])
 
         def dispatch_reply(reply_text):
+            """Process ALL tokens in GPT reply. Each token is handled in order;
+            skips button tokens when the entity already exists in client_data."""
             datos_actuales = client_data.get(phone_number, {})
-            tokens = {
-                "MANDAR_BOTONES_CONTACTO":      send_whatsapp_contact_buttons,
-                "MANDAR_BOTONES_COMPRAR_RENTAR": send_whatsapp_comprar_rentar_buttons,
-                "MANDAR_BOTONES_VIVIR_INVERTIR": send_whatsapp_vivir_invertir_buttons,
-            }
-            for token, fn in tokens.items():
-                if token in reply_text:
-                    text_part = reply_text.replace(token, "").strip()
-                    # Saltar botones si ya tenemos esa info
-                    if token == "MANDAR_BOTONES_VIVIR_INVERTIR" and "intencion" in datos_actuales:
-                        if text_part:
-                            send_whatsapp_message(phone_number, text_part)
-                        return
-                    if token == "MANDAR_BOTONES_COMPRAR_RENTAR" and "tipo" in datos_actuales:
-                        if text_part:
-                            send_whatsapp_message(phone_number, text_part)
-                        return
-                    if text_part:
-                        send_whatsapp_message(phone_number, text_part)
-                    fn(phone_number)
-                    return
+
+            # --- Step 1: extract plain text (everything that is not a token) ---
+            all_token_list = [
+                "MANDAR_BOTONES_CONTACTO",
+                "MANDAR_BOTONES_COMPRAR_RENTAR",
+                "MANDAR_BOTONES_VIVIR_INVERTIR",
+                "CONFIRMAR_FICHA",
+                "PREGUNTAR_TEMA_ASESOR",
+            ]
+            text_part = reply_text
+            for t in all_token_list:
+                text_part = text_part.replace(t, "")
+            text_part = text_part.strip()
+
+            # --- Step 2: send the plain text first (if any) ---
+            if text_part:
+                send_whatsapp_message(phone_number, text_part)
+                low = text_part.lower()
+                if "ya te encuentras en mérida" in low or "de dónde te mudas" in low or "ya vives en mérida" in low:
+                    waiting_for_ciudad.add(phone_number)
+                if any(p in low for p in ["me compartes tu correo", "me das tu correo", "tu correo",
+                                           "correo electrónico", "correo para", "comparte tu correo", "correo?"]):
+                    waiting_for_email.add(phone_number)
+
+            # --- Step 3: process each button/action token that appears ---
             if "CONFIRMAR_FICHA" in reply_text:
-                ficha_text = reply_text.replace("CONFIRMAR_FICHA", "").strip()
+                ficha_text = text_part  # the cleaned text IS the ficha body
                 last_ficha_text[phone_number] = ficha_text
                 if _redis:
                     _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
                 send_whatsapp_ficha_confirmation(phone_number, ficha_text)
-                return
+                return  # ficha confirmation is terminal — nothing else needed
+
             if "PREGUNTAR_TEMA_ASESOR" in reply_text:
-                text_part = reply_text.replace("PREGUNTAR_TEMA_ASESOR", "").strip()
-                if text_part:
-                    send_whatsapp_message(phone_number, text_part)
                 waiting_for_asesor_topic.add(phone_number)
-                return
-            send_whatsapp_message(phone_number, reply_text)
-            low = reply_text.lower()
-            if "ya te encuentras en mérida" in low or "de dónde te mudas" in low or "ya vives en mérida" in low:
-                waiting_for_ciudad.add(phone_number)
-            if any(p in low for p in ["me compartes tu correo", "me das tu correo", "tu correo", "correo electrónico", "correo para", "comparte tu correo", "correo?"]):
-                waiting_for_email.add(phone_number)
+                # text already sent above; no button to send
+
+            if "MANDAR_BOTONES_CONTACTO" in reply_text:
+                send_whatsapp_contact_buttons(phone_number)
+
+            if "MANDAR_BOTONES_VIVIR_INVERTIR" in reply_text:
+                if "intencion" not in datos_actuales:
+                    send_whatsapp_vivir_invertir_buttons(phone_number)
+                else:
+                    # Entity already known — use advance_flow to send what's actually missing
+                    advance_flow(phone_number)
+
+            if "MANDAR_BOTONES_COMPRAR_RENTAR" in reply_text:
+                if "tipo" not in datos_actuales:
+                    send_whatsapp_comprar_rentar_buttons(phone_number)
+                else:
+                    advance_flow(phone_number)
 
         dispatch_reply(reply)
 
