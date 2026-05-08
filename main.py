@@ -856,7 +856,15 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
             labels.append("renta")
         if datos.get("intencion") == "Para invertir":
             labels.append("inversion")
+        # Etiqueta del anuncio si viene de Meta
+        ctx_orig = ad_context.get(phone_number, {})
+        if isinstance(ctx_orig, dict) and ctx_orig.get("origen") == "anuncio":
+            anuncio_titulo = ctx_orig.get("texto", "").split("|")[0].replace("Anuncio:", "").strip()
+            if anuncio_titulo:
+                slug = anuncio_titulo.lower()[:30].replace(" ", "-")
+                labels.append(f"ad-{slug}")
         chatwoot_add_labels(conv_id, labels)
+        print(f"[{phone_number}] Chatwoot labels: {labels}")
         chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}", "activity")
     except Exception as e:
         print(f"Chatwoot qualify error: {e}")
@@ -1666,6 +1674,12 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         )
 
         reply = response.choices[0].message.content
+
+        # Si GPT mandó la ficha sin el token, forzar CONFIRMAR_FICHA
+        if ("CONFIRMAR_FICHA" not in reply and
+                "Nombre:" in reply and "Correo:" in reply and "Teléfono:" in reply):
+            reply = reply.strip() + "\nCONFIRMAR_FICHA"
+            print(f"[{phone_number}] CONFIRMAR_FICHA inyectado — GPT olvidó el token")
 
         # Limpiar tokens antes de guardar en historial para que GPT no se confunda
         all_tokens = ["MANDAR_BOTONES_CONTACTO", "MANDAR_BOTONES_COMPRAR_RENTAR",
