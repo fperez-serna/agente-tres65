@@ -765,9 +765,28 @@ def chatwoot_send_message(conv_id, text, message_type="outgoing", private=False)
                   headers=_chatwoot_headers(), timeout=5)
 
 def chatwoot_add_label(conv_id, label):
+    """Agrega una etiqueta preservando las existentes."""
     base = chatwoot_base()
+    # Obtener etiquetas actuales
+    r = requests.get(f"{base}/conversations/{conv_id}/labels",
+                     headers=_chatwoot_headers(), timeout=5)
+    existing = r.json().get("payload", []) if r.ok else []
+    if label not in existing:
+        existing.append(label)
     requests.post(f"{base}/conversations/{conv_id}/labels",
-                  json={"labels": [label]},
+                  json={"labels": existing},
+                  headers=_chatwoot_headers(), timeout=5)
+
+
+def chatwoot_add_labels(conv_id, labels):
+    """Agrega múltiples etiquetas a la vez preservando las existentes."""
+    base = chatwoot_base()
+    r = requests.get(f"{base}/conversations/{conv_id}/labels",
+                     headers=_chatwoot_headers(), timeout=5)
+    existing = set(r.json().get("payload", [])) if r.ok else set()
+    merged = list(existing | set(labels))
+    requests.post(f"{base}/conversations/{conv_id}/labels",
+                  json={"labels": merged},
                   headers=_chatwoot_headers(), timeout=5)
 
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
@@ -827,7 +846,7 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
         conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
         if not conv_id:
             return
-        # Etiquetas según datos de la ficha
+        # Etiquetas según datos de la ficha (todas de una sola vez)
         labels = ["listo-para-asesor"]
         tipo = datos.get("tipo", "").lower()
         if "compra" in tipo:
@@ -836,8 +855,7 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
             labels.append("renta")
         if datos.get("intencion") == "Para invertir":
             labels.append("inversion")
-        for label in labels:
-            chatwoot_add_label(conv_id, label)
+        chatwoot_add_labels(conv_id, labels)
         chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}", "activity")
     except Exception as e:
         print(f"Chatwoot qualify error: {e}")
