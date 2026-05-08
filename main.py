@@ -269,6 +269,7 @@ Uso: [Para vivir / Para invertir]
 Presupuesto: [rango]
 Zona: [zona o "Por definir"]
 Viene de: [ciudad]
+Origen: [lo tienes en el contexto del sistema como ORIGEN DEL LEAD]
 Notas: [contexto en 1 línea, o "Sin notas"]
 CONFIRMAR_FICHA
 
@@ -1555,6 +1556,15 @@ def receive_message():
 
         system = SYSTEM_PROMPT
         system += f"\n\nHORA ACTUAL: Son las {hora_actual}:00 hrs — es de {momento}. Cuando te despidas o cierres un mensaje usa '{despedida}', nunca 'buen día' si es de tarde o noche."
+
+        ctx = ad_context.get(phone_number, {})
+        if isinstance(ctx, dict):
+            if ctx.get("origen") == "anuncio" and ctx.get("texto"):
+                system += f"\n\nORIGEN DEL LEAD: Anuncio de Meta — {ctx['texto']}"
+            else:
+                system += "\n\nORIGEN DEL LEAD: Link directo (wa.me)"
+        else:
+            system += "\n\nORIGEN DEL LEAD: Link directo (wa.me)"
 
         # extract_entities was already called at PASO 0 for text/audio — don't call again
         datos_frescos = client_data.get(phone_number, {})
