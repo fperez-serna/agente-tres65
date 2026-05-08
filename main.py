@@ -632,15 +632,24 @@ def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     send_whatsapp_message(phone_number, texto)
 
     datos = client_data.get(phone_number, {})
+    print(f"[{phone_number}] _send_paso2 datos: intencion={datos.get('intencion')} tipo={datos.get('tipo')} presupuesto={datos.get('presupuesto')}")
 
+    boton_enviado = False
     if not datos.get("intencion"):
         send_whatsapp_vivir_invertir_buttons(phone_number)
+        boton_enviado = True
     elif not datos.get("tipo") and datos.get("intencion") == "Para vivir":
         send_whatsapp_comprar_rentar_buttons(phone_number)
+        boton_enviado = True
     elif not datos.get("presupuesto"):
         tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
         send_whatsapp_budget_list(phone_number, tipo)
-    # Si ya tiene todo eso, GPT continúa con ciudad/notas/correo
+        boton_enviado = True
+
+    if not boton_enviado:
+        # Ya tenemos entidades básicas — pedir lo siguiente via GPT
+        # Agregar solo el mensaje al historial y dejar que el siguiente mensaje del cliente active GPT
+        print(f"[{phone_number}] _send_paso2: entidades completas, GPT seguirá en próximo mensaje")
 
     history = history_get(phone_number)
     history.append({"role": "user", "content": user_message_for_history})
