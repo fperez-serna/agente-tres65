@@ -550,6 +550,56 @@ STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "q
              "me", "mi", "mis", "se", "su", "sus", "un", "una", "por", "para", "con",
              "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
 
+def parse_lead_ad_message(phone_number, text):
+    """Detecta y procesa el mensaje automático de Meta Lead Ads.
+    Retorna True si era un mensaje de formulario y ya pre-pobló client_data."""
+    if "Hello! I filled out your form" not in text and "filled out your form" not in text:
+        return False
+
+    datos = client_data.setdefault(phone_number, {})
+    lines = text.strip().splitlines()
+
+    presupuesto_map = {
+        "menos de $5,300,000": "Menos de 3 millones",
+        "menos de": "Menos de 3 millones",
+        "$5,300,000": "Menos de 3 millones",
+    }
+
+    for line in lines:
+        if ":" not in line:
+            continue
+        raw_key, _, raw_val = line.partition(":")
+        key = raw_key.strip().lower().replace("¿", "").replace("?", "").replace("_", " ").strip()
+        val = raw_val.strip()
+        if not val:
+            continue
+
+        if "full_name" in raw_key.lower() or "nombre" in key:
+            datos["nombre_completo"] = val.strip().title()
+            save_nombre_redis(phone_number, datos["nombre_completo"])
+        elif "email" in raw_key.lower() or "correo" in key:
+            if "@" in val:
+                datos["correo"] = val.strip().lower()
+        elif "city" in raw_key.lower() or "ciudad" in key:
+            datos["ciudad"] = val.strip()
+        elif "presupuesto" in key or "inversión" in key and "$" in val:
+            val_low = val.lower()
+            for k, mapped in presupuesto_map.items():
+                if k in val_low:
+                    datos["presupuesto"] = mapped
+                    break
+            else:
+                datos["presupuesto"] = val  # guardar tal cual si no matchea
+        elif "interesado" in key or "adquirir" in key:
+            if "sí" in val.lower() or "si" in val.lower():
+                datos["intencion"] = "Para vivir"  # default; bot puede refinar
+
+    client_data_save(phone_number)
+    _reconcile_states(phone_number, datos)
+    print(f"[{phone_number}] Lead Ad parseado: {datos}")
+    return True
+
+
 def extract_entities(phone_number, text):
     """Extrae intención, tipo, ciudad y zona, y los guarda en client_data."""
     low = text.lower()
@@ -1396,6 +1446,19 @@ def receive_message():
                     return "OK", 200
             else:
                 user_message = message["text"]["body"]
+
+            # Detectar formulario de Meta Lead Ad y pre-poblar datos
+            if parse_lead_ad_message(phone_number, user_message):
+                datos_lead = client_data.get(phone_number, {})
+                nombre = datos_lead.get("nombre_completo", "")
+                primer_nombre = nombre.split()[0] if nombre else ""
+                if primer_nombre:
+                    chatwoot_update_contact_name(phone_number, nombre)
+                    _send_paso2(phone_number, primer_nombre, user_message)
+                else:
+                    send_whatsapp_message(phone_number, "Gracias por tu interés. Con quién tengo el gusto? (nombre completo)")
+                    waiting_for_name.add(phone_number)
+                return "OK", 200
 
             # Palabras clave secretas — prioridad ABSOLUTA, incluso sobre agente activo
             if user_message.strip().lower() == "reset365":
