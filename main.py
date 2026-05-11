@@ -550,6 +550,30 @@ STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "q
              "me", "mi", "mis", "se", "su", "sus", "un", "una", "por", "para", "con",
              "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
 
+def format_lead_ad_for_chatwoot(text):
+    """Convierte el mensaje crudo de Lead Ad a formato legible en español."""
+    if "filled out your form" not in text:
+        return text
+    label_map = {
+        "full_name": "Nombre",
+        "email": "Correo",
+        "phone_number": "Teléfono",
+        "city": "Ciudad",
+        "¿estás_interesado_en_adquirir_una_propiedad_en_mérida,_yucatán?": "Interesado en Mérida",
+        "¿cuál_es_el_presupuesto_que_tenías_contemplado_para_esta_inversión?": "Presupuesto",
+        "¿cómo_te_gustaría_realizar_tu_inversión?": "Forma de inversión",
+    }
+    lines = ["📋 *Lead desde formulario de Meta*\n"]
+    for line in text.strip().splitlines():
+        if ":" not in line or "Hello!" in line:
+            continue
+        raw_key, _, val = line.partition(":")
+        key = raw_key.strip()
+        label = label_map.get(key.lower(), key.replace("_", " ").strip("¿?").strip().capitalize())
+        lines.append(f"• *{label}*: {val.strip()}")
+    return "\n".join(lines)
+
+
 def parse_lead_ad_message(phone_number, text):
     """Detecta y procesa el mensaje automático de Meta Lead Ads.
     Retorna True si era un mensaje de formulario y ya pre-pobló client_data."""
@@ -1199,7 +1223,8 @@ def receive_message():
         if msg_type == "text":
             _body = message.get("text", {}).get("body", "")
             if _body:
-                chatwoot_sync_message(phone_number, _body, "incoming")
+                _body_display = format_lead_ad_for_chatwoot(_body)
+                chatwoot_sync_message(phone_number, _body_display, "incoming")
                 # Etiqueta de origen + equipo automático en el primer mensaje
                 if not history_exists(phone_number):
                     referral = message.get("referral", {})
