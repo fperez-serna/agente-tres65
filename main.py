@@ -154,6 +154,14 @@ scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
 
+# Propiedades configuradas por anuncio
+PROPERTIES = {
+    "santa ana": {
+        "contexto": "Aquí tienes los detalles de esta propiedad, es una joya del centro de Mérida.",
+        "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845"
+    },
+}
+
 SYSTEM_PROMPT = """
 Eres María, asesora de TRES65 Inmobiliaria en Mérida, Yucatán.
 
@@ -549,6 +557,15 @@ def send_whatsapp_budget_list(to, tipo):
 STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "que",
              "me", "mi", "mis", "se", "su", "sus", "un", "una", "por", "para", "con",
              "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
+
+def detect_property(text):
+    """Detecta si el mensaje menciona una propiedad configurada. Retorna la clave o None."""
+    low = text.lower()
+    for key in PROPERTIES:
+        if key in low:
+            return key
+    return None
+
 
 def format_lead_ad_for_chatwoot(text):
     """Convierte el mensaje crudo de Lead Ad a formato legible en español."""
@@ -1471,6 +1488,25 @@ def receive_message():
                     return "OK", 200
             else:
                 user_message = message["text"]["body"]
+
+            # Detectar propiedad específica en primer mensaje
+            prop_key = detect_property(user_message) if is_first_message else None
+            if prop_key:
+                prop = PROPERTIES[prop_key]
+                # 1. Mostrar propiedad con link preview
+                msg_prop = f"{prop['contexto']}\n\n{prop['url']}"
+                send_whatsapp_message(phone_number, msg_prop)
+                # 2. Pedir nombre para continuar
+                msg_nombre = "Para darte más información y conectarte con el asesor indicado, con quién tengo el gusto? (nombre completo por favor)"
+                send_whatsapp_message(phone_number, msg_nombre)
+                history = history_get(phone_number)
+                history.append({"role": "user", "content": user_message})
+                history.append({"role": "assistant", "content": msg_prop + "\n" + msg_nombre})
+                history_set(phone_number, history[-20:])
+                update_last_activity(phone_number)
+                waiting_for_name.add(phone_number)
+                schedule_followup(phone_number)
+                return "OK", 200
 
             # Detectar formulario de Meta Lead Ad y pre-poblar datos
             if parse_lead_ad_message(phone_number, user_message):
