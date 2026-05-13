@@ -333,6 +333,20 @@ def send_whatsapp_message(to, message):
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp text: {response.status_code} - {response.text}")
 
+def send_whatsapp_image(to, image_url, caption=""):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "image",
+        "image": {"link": image_url, "caption": caption}
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp image: {response.status_code} - {response.text[:100]}")
+
 
 def send_whatsapp_contact_buttons(to):
     token = os.environ.get("WHATSAPP_TOKEN")
@@ -1491,15 +1505,19 @@ def receive_message():
             prop_key = detect_property(user_message) if is_first_message else None
             if prop_key:
                 prop = PROPERTIES[prop_key]
-                # 1. Mostrar propiedad con link preview
-                msg_prop = f"{prop['contexto']}\n\n{prop['url']}"
-                send_whatsapp_message(phone_number, msg_prop)
+                # 1. Mandar imagen del anuncio si viene del referral de Meta
+                referral_early = message.get("referral", {})
+                ad_image_url = referral_early.get("image_url", "")
+                if ad_image_url:
+                    send_whatsapp_image(phone_number, ad_image_url, prop["contexto"])
+                else:
+                    send_whatsapp_message(phone_number, prop["contexto"])
                 # 2. Pedir nombre para continuar
-                msg_nombre = "Para darte más información y conectarte con el asesor indicado, con quién tengo el gusto? (nombre completo por favor)"
+                msg_nombre = "para darte más información y conectarte con el asesor indicado, con quién tengo el gusto? (nombre completo por favor)"
                 send_whatsapp_message(phone_number, msg_nombre)
                 history = history_get(phone_number)
                 history.append({"role": "user", "content": user_message})
-                history.append({"role": "assistant", "content": msg_prop + "\n" + msg_nombre})
+                history.append({"role": "assistant", "content": prop["contexto"] + "\n" + msg_nombre})
                 history_set(phone_number, history[-20:])
                 update_last_activity(phone_number)
                 waiting_for_name.add(phone_number)
