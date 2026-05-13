@@ -157,7 +157,7 @@ CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
 # Propiedades configuradas por anuncio
 PROPERTIES = {
     "santa ana": {
-        "contexto": "Aquí tienes los detalles de esta propiedad, es una joya del centro de Mérida.",
+        "contexto": "La casa en Santa Ana es una joya del centro de Mérida.",
         "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845"
     },
 }
