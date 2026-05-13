@@ -1558,6 +1558,10 @@ def receive_message():
                 send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
                 return "OK", 200
 
+            if user_message.strip().lower() == "nextday365":
+                send_followup(phone_number)
+                return "OK", 200
+
             if user_message.strip().lower() == "test_followup365":
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
