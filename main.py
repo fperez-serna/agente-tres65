@@ -1370,7 +1370,7 @@ def receive_message():
                         send_whatsapp_message(phone_number, "qué gusto que regreses. te voy a conectar con el asesor ideal para ti.")
                         send_whatsapp_contact_buttons(phone_number)
                     else:
-                        send_whatsapp_message(phone_number, "qué gusto que regreses. para pasarte con el asesor correcto necesito completar tu ficha.")
+                        send_whatsapp_message(phone_number, "Qué gusto! Retomemos. Para pasarte con el asesor ideal, solo necesito completar tu ficha.")
                         if "intencion" not in datos:
                             send_whatsapp_vivir_invertir_buttons(phone_number)
                         elif "tipo" not in datos and datos.get("intencion") != "Para invertir":
