@@ -384,6 +384,27 @@ def send_whatsapp_contact_buttons(to):
             _redis.setex(f"pending_decision:{to}", 2 * 3600, "1")
 
 
+def _send_cta_url(to, body_text, display_text, url_dest):
+    token = os.environ.get("WHATSAPP_TOKEN")
+    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+    url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "cta_url",
+            "body": {"text": body_text},
+            "action": {
+                "name": "cta_url",
+                "parameters": {"display_text": display_text, "url": url_dest}
+            }
+        }
+    }
+    response = requests.post(url, headers=headers, json=data)
+    print(f"WhatsApp CTA: {response.status_code} - {response.text[:100]}")
+
 def send_whatsapp_calendly_button(to):
     token = os.environ.get("WHATSAPP_TOKEN")
     phone_id = os.environ.get("WHATSAPP_PHONE_ID")
@@ -1137,7 +1158,7 @@ def send_followup(phone_number):
         return
     text = "Buenos días! Si sigues buscando propiedad, aquí estoy para ayudarte."
     _send_interactive_buttons(phone_number, text, [
-        {"id": "ver_catalogo",   "title": "Ver propiedades"},
+        {"id": "ver_catalogo",   "title": "Catálogo Propiedades"},
         {"id": "no_listo",       "title": "Aún no estoy listo"},
         {"id": "hablar_asesor",  "title": "Hablar con asesor"},
     ])
@@ -1362,8 +1383,8 @@ def receive_message():
 
                 if button_id == "ver_catalogo":
                     _send_interactive_buttons(phone_number, "¿Qué te interesa ver?", [
-                        {"id": "catalogo_ventas", "title": "Propiedades en venta"},
-                        {"id": "catalogo_rentas", "title": "Propiedades en renta"}
+                        {"id": "catalogo_ventas", "title": "En venta"},
+                        {"id": "catalogo_rentas", "title": "En renta"}
                     ])
                     return "OK", 200
 
@@ -1379,11 +1400,11 @@ def receive_message():
                     return "OK", 200
 
                 if button_id == "catalogo_ventas":
-                    send_whatsapp_message(phone_number, f"Aquí puedes ver todas nuestras propiedades en venta:\n{VENTAS_URL}")
+                    _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en venta:", "Ver propiedades en venta", VENTAS_URL)
                     return "OK", 200
 
                 if button_id == "catalogo_rentas":
-                    send_whatsapp_message(phone_number, f"Aquí puedes ver todas nuestras propiedades en renta:\n{RENTAS_URL}")
+                    _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en renta:", "Ver propiedades en renta", RENTAS_URL)
                     return "OK", 200
 
                 if "tiempo" in btn_lower or "después" in btn_lower or "despues" in btn_lower:
