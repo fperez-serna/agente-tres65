@@ -322,6 +322,8 @@ LÍMITES:
 
 
 def send_whatsapp_message(to, message):
+    if message:
+        message = message[0].upper() + message[1:]
     token = os.environ.get("WHATSAPP_TOKEN")
     phone_id = os.environ.get("WHATSAPP_PHONE_ID")
     url = f"https://graph.facebook.com/v17.0/{phone_id}/messages"
