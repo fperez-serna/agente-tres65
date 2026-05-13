@@ -1280,7 +1280,9 @@ def receive_message():
                 # Etiqueta de origen + equipo automático en el primer mensaje
                 if not history_exists(phone_number):
                     referral = message.get("referral", {})
-                    origen_label = "anuncio-meta" if referral.get("source_type") == "ad" else "link-directo"
+                    TEXTO_LINK_DIRECTO = "hola! necesito ayuda en mi búsqueda inmobiliaria"
+                    es_link_directo = _body.strip().lower() == TEXTO_LINK_DIRECTO
+                    origen_label = "link-directo" if es_link_directo else "anuncio-meta"
                     try:
                         datos_orig = client_data_load(phone_number)
                         c_id_orig  = chatwoot_get_or_create_contact(phone_number, datos_orig)
