@@ -1366,23 +1366,20 @@ def receive_message():
                 btn_lower = button_title.lower()
 
                 if "asesor" in btn_lower or "hablar" in btn_lower:
-                    # Hablar con asesor experto → retomar ficha o conectar directo
-                    datos = client_data.get(phone_number, {})
-                    if "correo" in datos:
-                        send_whatsapp_message(phone_number, "qué gusto que regreses. te voy a conectar con el asesor ideal para ti.")
+                    datos = client_data_load(phone_number)
+                    # Si ya tiene todo → conectar directo
+                    if datos.get("correo"):
+                        send_whatsapp_message(phone_number, "Qué gusto que regreses. Te voy a conectar con el asesor ideal para ti.")
                         send_whatsapp_contact_buttons(phone_number)
                     else:
                         send_whatsapp_message(phone_number, "Qué gusto! Retomemos. Para pasarte con el asesor ideal, solo necesito completar tu ficha.")
-                        if "intencion" not in datos:
-                            send_whatsapp_vivir_invertir_buttons(phone_number)
-                        elif "tipo" not in datos and datos.get("intencion") != "Para invertir":
-                            send_whatsapp_comprar_rentar_buttons(phone_number)
-                        elif "presupuesto" not in datos:
-                            tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
-                            send_whatsapp_budget_list(phone_number, tipo)
+                        # Pedir nombre si falta, si no avanzar al siguiente campo faltante
+                        nombre = datos.get("nombre_completo", "") or get_nombre_redis(phone_number)
+                        if not nombre:
+                            send_whatsapp_message(phone_number, "¿Cuál es tu nombre? (completo por favor)")
+                            waiting_for_name.add(phone_number)
                         else:
-                            send_whatsapp_message(phone_number, "me compartes tu correo para completar tu ficha?")
-                            waiting_for_email.add(phone_number)
+                            advance_flow(phone_number)
                     return "OK", 200
 
                 if button_id == "ver_catalogo":
