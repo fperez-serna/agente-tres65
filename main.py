@@ -555,7 +555,7 @@ def send_whatsapp_budget_list(to, tipo):
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     if tipo == "rentar":
-        body = "ya tienes un rango de renta en mente?"
+        body = "¿Ya tienes un rango de renta en mente?"
         rows = [
             {"id": "presup_menos15", "title": "Menos de 15 mil"},
             {"id": "presup_15_25",   "title": "15 a 25 mil"},
@@ -565,7 +565,7 @@ def send_whatsapp_budget_list(to, tipo):
             {"id": "presup_asesor",  "title": "Lo platico con asesor"},
         ]
     else:
-        body = "ya tienes un rango de inversión en mente?"
+        body = "¿Ya tienes un rango de inversión en mente?"
         rows = [
             {"id": "presup_menos3m", "title": "Menos de 3 millones"},
             {"id": "presup_3_4m",    "title": "3.5 a 4.5 millones"},
@@ -1373,13 +1373,8 @@ def receive_message():
                         send_whatsapp_contact_buttons(phone_number)
                     else:
                         send_whatsapp_message(phone_number, "Qué gusto! Retomemos. Para pasarte con el asesor ideal, solo necesito completar tu ficha.")
-                        # Pedir nombre si falta, si no avanzar al siguiente campo faltante
-                        nombre = datos.get("nombre_completo", "") or get_nombre_redis(phone_number)
-                        if not nombre:
-                            send_whatsapp_message(phone_number, "¿Cuál es tu nombre? (completo por favor)")
-                            waiting_for_name.add(phone_number)
-                        else:
-                            advance_flow(phone_number)
+                        send_whatsapp_message(phone_number, "¿Cuál es tu nombre? (completo por favor)")
+                        waiting_for_name.add(phone_number)
                     return "OK", 200
 
                 if button_id == "ver_catalogo":
