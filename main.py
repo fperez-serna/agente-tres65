@@ -972,13 +972,6 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
             return
         # Etiquetas según datos de la ficha (todas de una sola vez)
         labels = ["listo-para-asesor"]
-        tipo = datos.get("tipo", "").lower()
-        if "compra" in tipo:
-            labels.append("compra")
-        elif "renta" in tipo:
-            labels.append("renta")
-        if datos.get("intencion") == "Para invertir":
-            labels.append("inversion")
         # Etiqueta del anuncio si viene de Meta
         ctx_orig = ad_context.get(phone_number, {})
         if isinstance(ctx_orig, dict) and ctx_orig.get("origen") == "anuncio":
