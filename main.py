@@ -1135,9 +1135,7 @@ def send_followup(phone_number):
                           replace_existing=True)
         print(f"[{phone_number}] Follow-up diferido a las 9am Mérida")
         return
-    name = get_client_name(phone_number)
-    greeting = f"hola {name}" if name else "hola"
-    text = f"{greeting}, sigues buscando algo en Mérida?"
+    text = "Buenos días! Si sigues buscando propiedad, aquí estoy para ayudarte."
     _send_interactive_buttons(phone_number, text, [
         {"id": "ver_catalogo",   "title": "Ver propiedades"},
         {"id": "no_listo",       "title": "Aún no estoy listo"},
