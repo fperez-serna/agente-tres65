@@ -1490,6 +1490,7 @@ def receive_message():
                 user_message = message["text"]["body"]
 
             # Detectar propiedad específica en primer mensaje
+            is_first_message = not history_exists(phone_number)
             prop_key = detect_property(user_message) if is_first_message else None
             if prop_key:
                 prop = PROPERTIES[prop_key]
