@@ -328,7 +328,7 @@ def send_whatsapp_message(to, message):
     data = {
         "messaging_product": "whatsapp",
         "to": to,
-        "text": {"body": message}
+        "text": {"body": message, "preview_url": True}
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp text: {response.status_code} - {response.text}")
