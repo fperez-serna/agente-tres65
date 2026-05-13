@@ -1137,8 +1137,12 @@ def send_followup(phone_number):
         return
     name = get_client_name(phone_number)
     greeting = f"hola {name}" if name else "hola"
-    text = f"{greeting}, sigues interesado en encontrar algo en Mérida? aquí sigo si quieres continuar la búsqueda, sin presión"
-    send_whatsapp_message(phone_number, text)
+    text = f"{greeting}, sigues buscando algo en Mérida?"
+    _send_interactive_buttons(phone_number, text, [
+        {"id": "ver_catalogo",   "title": "Ver propiedades"},
+        {"id": "no_listo",       "title": "Aún no estoy listo"},
+        {"id": "hablar_asesor",  "title": "Hablar con asesor"},
+    ])
     follow_up_jobs.pop(phone_number, None)
     print(f"[{phone_number}] Follow-up enviado")
 
@@ -1356,6 +1360,17 @@ def receive_message():
                         else:
                             send_whatsapp_message(phone_number, "me compartes tu correo para completar tu ficha?")
                             waiting_for_email.add(phone_number)
+                    return "OK", 200
+
+                if button_id == "ver_catalogo":
+                    _send_interactive_buttons(phone_number, "qué te interesa ver?", [
+                        {"id": "catalogo_ventas", "title": "Propiedades en venta"},
+                        {"id": "catalogo_rentas", "title": "Propiedades en renta"}
+                    ])
+                    return "OK", 200
+
+                if button_id == "no_listo":
+                    send_whatsapp_message(phone_number, "sin presión, aquí voy a estar cuando estés lista o listo.")
                     return "OK", 200
 
                 if "catálogo" in btn_lower or "catalogo" in btn_lower or "propiedad" in btn_lower:
