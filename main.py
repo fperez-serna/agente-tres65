@@ -824,6 +824,7 @@ def chatwoot_get_or_create_contact(phone_number, datos):
     }
     r = requests.post(f"{base}/contacts", json=payload,
                       headers=_chatwoot_headers(), timeout=5)
+    print(f"[Chatwoot] crear contacto status={r.status_code} body={r.text[:200]}")
     return r.json().get("id") if r.ok else None
 
 def chatwoot_get_or_create_conversation(phone_number, contact_id):
