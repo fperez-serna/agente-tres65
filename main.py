@@ -1282,7 +1282,7 @@ def receive_message():
                     referral = message.get("referral", {})
                     TEXTO_LINK_DIRECTO = "hola! necesito ayuda en mi búsqueda inmobiliaria"
                     es_link_directo = _body.strip().lower() == TEXTO_LINK_DIRECTO
-                    origen_label = "link-directo" if es_link_directo else "anuncio-meta"
+                    origen_label = "link-directo" if es_link_directo else "ad-meta"
                     try:
                         datos_orig = client_data_load(phone_number)
                         c_id_orig  = chatwoot_get_or_create_contact(phone_number, datos_orig)
