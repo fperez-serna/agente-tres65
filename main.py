@@ -1388,23 +1388,23 @@ def receive_message():
                     ])
                     return "OK", 200
 
-                if button_id == "no_listo":
-                    send_whatsapp_message(phone_number, "Sin presión, aquí voy a estar cuando estés lista o listo.")
-                    return "OK", 200
-
-                if "catálogo" in btn_lower or "catalogo" in btn_lower or "propiedad" in btn_lower:
-                    _send_interactive_buttons(phone_number, "¿Qué te interesa ver?", [
-                        {"id": "catalogo_ventas", "title": "Propiedades en venta"},
-                        {"id": "catalogo_rentas", "title": "Propiedades en renta"}
-                    ])
-                    return "OK", 200
-
                 if button_id == "catalogo_ventas":
                     _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en venta:", "Ver propiedades en venta", VENTAS_URL)
                     return "OK", 200
 
                 if button_id == "catalogo_rentas":
                     _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en renta:", "Ver propiedades en renta", RENTAS_URL)
+                    return "OK", 200
+
+                if button_id == "no_listo":
+                    send_whatsapp_message(phone_number, "Sin presión, aquí voy a estar cuando estés lista o listo.")
+                    return "OK", 200
+
+                if "catálogo" in btn_lower or "catalogo" in btn_lower or "propiedad" in btn_lower:
+                    _send_interactive_buttons(phone_number, "¿Qué te interesa ver?", [
+                        {"id": "catalogo_ventas", "title": "En venta"},
+                        {"id": "catalogo_rentas", "title": "En renta"}
+                    ])
                     return "OK", 200
 
                 if "tiempo" in btn_lower or "después" in btn_lower or "despues" in btn_lower:
