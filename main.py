@@ -157,6 +157,7 @@ CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
 # Propiedades configuradas por anuncio
 PROPERTIES = {
     "santa ana": {
+        "saludo": "Hola! Santa Ana es de las colonias más cotizadas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
         "contexto": "La casa en Santa Ana es una joya del centro de Mérida.",
         "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845"
     },
@@ -1505,19 +1506,16 @@ def receive_message():
             prop_key = detect_property(user_message) if is_first_message else None
             if prop_key:
                 prop = PROPERTIES[prop_key]
-                # 1. Mandar imagen del anuncio si viene del referral de Meta
                 referral_early = message.get("referral", {})
                 ad_image_url = referral_early.get("image_url", "")
+                msg_unico = prop["saludo"]
                 if ad_image_url:
-                    send_whatsapp_image(phone_number, ad_image_url, prop["contexto"])
+                    send_whatsapp_image(phone_number, ad_image_url, msg_unico)
                 else:
-                    send_whatsapp_message(phone_number, prop["contexto"])
-                # 2. Pedir nombre para continuar
-                msg_nombre = "para darte más información y conectarte con el asesor indicado, con quién tengo el gusto? (nombre completo por favor)"
-                send_whatsapp_message(phone_number, msg_nombre)
+                    send_whatsapp_message(phone_number, msg_unico)
                 history = history_get(phone_number)
                 history.append({"role": "user", "content": user_message})
-                history.append({"role": "assistant", "content": prop["contexto"] + "\n" + msg_nombre})
+                history.append({"role": "assistant", "content": msg_unico})
                 history_set(phone_number, history[-20:])
                 update_last_activity(phone_number)
                 waiting_for_name.add(phone_number)
