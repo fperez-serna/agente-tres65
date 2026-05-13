@@ -884,13 +884,16 @@ def chatwoot_add_labels(conv_id, labels):
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
     if not os.environ.get("CHATWOOT_TOKEN"):
+        print("[Chatwoot] Sin token — sync omitido")
         return
     try:
         datos   = client_data_load(phone_number)
         c_id    = chatwoot_get_or_create_contact(phone_number, datos)
+        print(f"[Chatwoot] contact_id={c_id}")
         if not c_id:
             return
         conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+        print(f"[Chatwoot] conv_id={conv_id}")
         if not conv_id:
             return
         base = chatwoot_base()
