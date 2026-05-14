@@ -1680,6 +1680,21 @@ def receive_message():
                 waiting_for_ficha_correction.discard(phone_number)
                 user_message = f"corrección de ficha: {user_message}"
 
+            # Detectar frustración con el bot (máquina/robot/no persona)
+            bot_frustration_keywords = ["máquina", "maquina", "robot", "bot ", "no es una persona",
+                                        "no habla con personas", "no quiero hablar con", "inteligencia artificial",
+                                        "no me entiendo con", "no tiene caso", "no es humano"]
+            if any(k in user_message.lower() for k in bot_frustration_keywords):
+                MSG_BOT = (
+                    "Entiendo que pueda sentirse incómodo llenar tantos datos, y lo respeto. "
+                    "Detrás de este sistema hay asesores reales, muchos con agendas cargadas y familias que dependen de este trabajo. "
+                    "Tener la ficha aunque sea a medias les permite llegar a la conversación preparados para ayudarte mejor, sin hacerte repetir todo. "
+                    "No tiene que quedar perfecta — con tu nombre y celular ya es suficiente para que alguien te contacte. "
+                    "¿Le damos una oportunidad?"
+                )
+                send_whatsapp_message(phone_number, MSG_BOT)
+                return "OK", 200
+
             # Detectar negaciones en momentos clave
             negaciones = {"no", "nop", "nel", "paso", "no quiero", "prefiero no",
                           "no gracias", "no por ahora", "ahorita no", "después", "luego"}
@@ -1687,7 +1702,9 @@ def receive_message():
 
             if es_negacion and phone_number in (waiting_for_apellido | waiting_for_email | waiting_for_name):
                 send_whatsapp_message(phone_number,
-                    "entiendo, sin presión. es importante tener tu información completa para poder pasarte con el asesor experto que mejor se adapte a lo que buscas. cuando te sientas listo aquí voy a estar.")
+                    "A los asesores les ayuda mucho tener la ficha completa, ya que las fichas listas suelen revisarse con un poco más de prioridad. "
+                    "Pero no pasa nada si aún hay cosas por definir, podemos avanzar con lo básico.")
+                advance_flow(phone_number)
                 return "OK", 200
 
             # Captura de nombre después del saludo — SIN pasar por GPT
