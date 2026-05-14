@@ -381,9 +381,9 @@ def send_whatsapp_contact_buttons(to):
     print(f"WhatsApp buttons: {response.status_code} - {response.text}")
     if response.ok:
         pending_decision[to] = True
-        # Also persist with TTL so stale state expires automatically (2 hours)
         if _redis:
             _redis.setex(f"pending_decision:{to}", 2 * 3600, "1")
+        chatwoot_sync_bot(to, "¿Cómo prefieres que te contacte un asesor? [Agendar llamada / Por WhatsApp]")
 
 
 def _send_cta_url(to, body_text, display_text, url_dest):
@@ -457,6 +457,7 @@ def send_whatsapp_comprar_rentar_buttons(to):
         {"id": "comprar", "title": "Comprar"},
         {"id": "rentar", "title": "Rentar"}
     ])
+    chatwoot_sync_bot(to, "¿Comprar o Rentar? [Comprar / Rentar]")
 
 
 def send_whatsapp_vivir_invertir_buttons(to):
@@ -465,6 +466,7 @@ def send_whatsapp_vivir_invertir_buttons(to):
         {"id": "para_invertir", "title": "Para invertir"},
         {"id": "algo_mas",      "title": "Algo más"}
     ])
+    chatwoot_sync_bot(to, "La propiedad que buscas es para... [Para vivir / Para invertir / Algo más]")
 
 
 def send_whatsapp_ficha_confirmation(to, ficha_text):
@@ -889,6 +891,10 @@ def chatwoot_get_or_create_conversation(phone_number, contact_id):
         return conv_id
     return None
 
+def chatwoot_sync_bot(phone_number, text):
+    """Atajo para sincronizar mensajes del bot como nota privada."""
+    chatwoot_sync_message(phone_number, f"🤖 {text}", "outgoing", private=True)
+
 def chatwoot_send_message(conv_id, text, message_type="outgoing", private=False):
     base = chatwoot_base()
     requests.post(f"{base}/conversations/{conv_id}/messages",
@@ -944,6 +950,7 @@ def chatwoot_sync_message(phone_number, text, message_type="incoming", private=F
             if _redis:
                 _redis.delete(f"cw_conv:{phone_number}")
             conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+            print(f"[Chatwoot] conv_id recuperado={conv_id}")
             if conv_id:
                 requests.post(f"{base}/conversations/{conv_id}/messages",
                               json={"content": text, "message_type": message_type, "private": private},
