@@ -159,7 +159,13 @@ PROPERTIES = {
     "santa ana": {
         "saludo": "Hola! Santa Ana es de las colonias más cotizadas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
         "contexto": "La casa en Santa Ana es una joya del centro de Mérida.",
-        "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845"
+        "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845",
+        "datos": {
+            "tipo": "comprar",
+            "intencion": "Para vivir",
+            "presupuesto": "5 a 6 millones",
+            "notas": "Interesado en casa Santa Ana — venta amueblada $5.5M"
+        }
     },
 }
 
@@ -1557,6 +1563,10 @@ def receive_message():
                 prop = PROPERTIES[prop_key]
                 referral_early = message.get("referral", {})
                 ad_image_url = referral_early.get("image_url", "")
+                # Pre-poblar datos conocidos de la propiedad
+                if prop.get("datos"):
+                    client_data.setdefault(phone_number, {}).update(prop["datos"])
+                    client_data_save(phone_number)
                 msg_unico = prop["saludo"]
                 if ad_image_url:
                     send_whatsapp_image(phone_number, ad_image_url, msg_unico)
