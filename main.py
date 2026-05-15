@@ -881,11 +881,17 @@ def chatwoot_get_or_create_conversation(phone_number, contact_id):
     base     = chatwoot_base()
     inbox_id = os.environ.get("CHATWOOT_INBOX_ID", "")
     redis_key = f"cw_conv:{phone_number}"
-    # Revisar si ya existe en Redis
+    # Revisar si ya existe en Redis y validar que sigue existiendo en Chatwoot
     if _redis:
         conv_id = _redis.get(redis_key)
         if conv_id:
-            return int(conv_id)
+            check = requests.get(f"{base}/conversations/{conv_id}",
+                                 headers=_chatwoot_headers(), timeout=5)
+            if check.ok:
+                return int(conv_id)
+            # Conv no existe en Chatwoot — limpiar caché
+            _redis.delete(redis_key)
+            print(f"[Chatwoot] conv {conv_id} ya no existe, creando nueva")
     # Crear nueva conversación
     payload = {
         "contact_id":       contact_id,
