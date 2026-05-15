@@ -1599,6 +1599,8 @@ def receive_message():
                 reset_conversation(phone_number)
                 if _redis:
                     _redis.delete(f"agent_active:{phone_number}")
+                    _redis.delete(f"cw_conv:{phone_number}")
+                chatwoot_update_contact_name(phone_number, phone_number)
                 send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
                 return "OK", 200
 
