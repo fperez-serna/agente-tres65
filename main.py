@@ -1744,9 +1744,19 @@ def receive_message():
 
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
+                # Si es una pregunta, dejar que GPT responda y luego vuelva a pedir nombre
+                es_pregunta = "?" in user_message or any(k in user_message.lower() for k in [
+                    "renta", "venta", "precio", "costo", "cuánto", "cuanto", "cuartos",
+                    "recámara", "recamara", "baño", "bano", "alberca", "jardín", "jardin",
+                    "amueblada", "ubicación", "ubicacion", "donde", "dónde", "m2", "metros",
+                    "estacionamiento", "cochera", "info", "información", "informacion"
+                ])
+                if es_pregunta:
+                    # GPT responde la pregunta — el waiting_for_name sigue activo
+                    pass
                 words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
-                # Solo tratar como nombre si el mensaje es corto (máximo 4 palabras)
-                if len(user_message.strip().split()) <= 4 and len(words) >= 1:
+                # Solo tratar como nombre si no es pregunta y el mensaje es corto (máximo 4 palabras)
+                if not es_pregunta and len(user_message.strip().split()) <= 4 and len(words) >= 1:
                     waiting_for_name.discard(phone_number)
                     if len(words) == 1:
                         client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
@@ -1839,6 +1849,9 @@ def receive_message():
                 system += "\n\nINSTRUCCIÓN INMEDIATA: Primer mensaje sin datos. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
         elif not datos_frescos.get("nombre_completo") and len(history) <= 4:
             system += "\n\nINSTRUCCIÓN: El cliente se presentó. Confirma con calidez lo que entendiste y pide solo el apellido. No hagas más preguntas."
+
+        if phone_number in waiting_for_name:
+            system += "\n\nINSTRUCCIÓN: El cliente hizo una pregunta antes de dar su nombre. Respóndela brevemente con lo que sabes de la propiedad y al final pide su nombre completo de forma natural. No ignores su pregunta."
 
         if phone_number in waiting_for_apellido:
             system += "\n\nINSTRUCCIÓN: El cliente dio solo su primer nombre. Tu ÚNICA respuesta es pedir el apellido de forma natural: 'y tu apellido?' — nada más."
