@@ -1803,8 +1803,17 @@ def receive_message():
                 client_data_save(phone_number)
                 waiting_for_email.discard(phone_number)
             elif phone_number in waiting_for_email and len(user_message.strip()) > 4:
-                send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
-                return "OK", 200
+                no_correo_patterns = ["no tengo", "no tiene", "no quiero", "no me interesa",
+                                      "siguiente", "omitir", "saltar", "después", "despues",
+                                      "no, ", "no.", "no gracias", "sin correo", "no cuento",
+                                      "no tengo correo", "no aplica", "n/a"]
+                if any(p in user_message.lower() for p in no_correo_patterns) or user_message.strip().lower() == "no":
+                    client_data.setdefault(phone_number, {})["correo"] = "Por definir"
+                    client_data_save(phone_number)
+                    waiting_for_email.discard(phone_number)
+                else:
+                    send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
+                    return "OK", 200
 
         else:
             return "OK", 200
