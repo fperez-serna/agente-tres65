@@ -1048,7 +1048,16 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
                 labels.append(f"ad-{slug}")
         chatwoot_add_labels(conv_id, labels)
         print(f"[{phone_number}] Chatwoot labels: {labels}")
-        chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}", "activity")
+        # Agregar link de la propiedad si el lead viene de un anuncio configurado
+        prop_link = ""
+        ctx_orig = ad_context.get(phone_number, {})
+        if isinstance(ctx_orig, dict):
+            prop_key = ctx_orig.get("property_key", "")
+            if prop_key and prop_key in PROPERTIES:
+                prop_url = PROPERTIES[prop_key].get("url", "")
+                if prop_url:
+                    prop_link = f"\n\n🔗 Propiedad del anuncio: {prop_url}"
+        chatwoot_send_message(conv_id, f"✅ LEAD CALIFICADO\n\n{ficha_text}{prop_link}", "activity")
     except Exception as e:
         print(f"Chatwoot qualify error: {e}")
 
@@ -1081,7 +1090,7 @@ def reset_conversation(phone_number):
             _redis.delete(key)
 
 
-def send_zapier_ficha(phone_number):
+def send_zapier_ficha(phone_number, eb_props=None):
     zapier_url = os.environ.get("ZAPIER_WEBHOOK")
     if not zapier_url:
         return
@@ -1122,6 +1131,7 @@ def send_zapier_ficha(phone_number):
         "origen":          origen,
         "source_id":       source_id,
         "source_url":      source_url,
+        "propiedades_sugeridas": format_easybroker_for_chatwoot(eb_props or []),
     }
     try:
         requests.post(zapier_url, json=payload, timeout=5)
@@ -1129,6 +1139,69 @@ def send_zapier_ficha(phone_number):
     except Exception as e:
         print(f"[{phone_number}] Error Zapier: {e}")
 
+
+EASYBROKER_BASE = "https://api.easybroker.com/v1"
+
+PRESUPUESTO_PRICE_MAP = {
+    "Menos de 3 millones":   (None,    2999999),
+    "3.5 a 4.5 millones":    (3500000, 4500000),
+    "4.5 a 5.5 millones":    (4500000, 5500000),
+    "5 a 6 millones":        (5000000, 6000000),
+    "6.5 a 7.5 millones":    (6500000, 7500000),
+    "Más de 8 millones":     (8000000, None),
+    "Menos de 15 mil":       (None,    14999),
+    "15 a 25 mil":           (15000,   25000),
+    "25 a 35 mil":           (25000,   35000),
+    "35 a 45 mil":           (35000,   45000),
+    "50 mil o más":          (50000,   None),
+}
+
+def easybroker_search(tipo, presupuesto, max_results=3):
+    api_key = os.environ.get("EASYBROKER_API_KEY")
+    if not api_key:
+        return []
+    headers = {"X-Authorization": api_key, "Accept": "application/json"}
+    listing_type = "rent" if tipo and "rentar" in tipo.lower() else "sale"
+    params = {
+        "search[statuses][]": "published",
+        "search[listing_type]": listing_type,
+        "per_page": max_results,
+    }
+    if presupuesto and presupuesto in PRESUPUESTO_PRICE_MAP:
+        min_p, max_p = PRESUPUESTO_PRICE_MAP[presupuesto]
+        if min_p:
+            params["search[min_price]"] = min_p
+        if max_p:
+            params["search[max_price]"] = max_p
+    try:
+        r = requests.get(f"{EASYBROKER_BASE}/properties", headers=headers, params=params, timeout=10)
+        if r.ok:
+            return r.json().get("content", [])[:max_results]
+    except Exception as e:
+        print(f"EasyBroker search error: {e}")
+    return []
+
+def format_easybroker_for_whatsapp(properties):
+    if not properties:
+        return None
+    lines = ["Aquí algunas opciones que podrían interesarte:"]
+    for p in properties:
+        title = p.get("title", "Propiedad")
+        price = p.get("show_price", "Precio a consultar")
+        url   = p.get("public_url", "")
+        lines.append(f"\n• {title}\n  {price}\n  {url}")
+    return "\n".join(lines)
+
+def format_easybroker_for_chatwoot(properties):
+    if not properties:
+        return ""
+    lines = ["\n\n🏠 *Propiedades sugeridas (EasyBroker):*"]
+    for p in properties:
+        title = p.get("title", "Propiedad")
+        price = p.get("show_price", "")
+        url   = p.get("public_url", "")
+        lines.append(f"• {title} — {price}\n  {url}")
+    return "\n".join(lines)
 
 def cancel_followup(phone_number):
     if phone_number in follow_up_jobs:
@@ -1436,9 +1509,22 @@ def receive_message():
 
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
-                    send_zapier_ficha(phone_number)
-                    chatwoot_mark_qualified(phone_number, last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else ""))
+                    datos_ficha = client_data_load(phone_number)
+                    # Buscar propiedades en EasyBroker
+                    eb_props = easybroker_search(
+                        datos_ficha.get("tipo", ""),
+                        datos_ficha.get("presupuesto", "")
+                    )
+                    ficha_txt = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
+                    # Enviar ficha + propiedades a Zapier y Chatwoot
+                    send_zapier_ficha(phone_number, eb_props)
+                    chatwoot_mark_qualified(phone_number, ficha_txt + format_easybroker_for_chatwoot(eb_props))
                     send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
+                    # Mandar propiedades al cliente si hay resultados
+                    if eb_props:
+                        msg_props = format_easybroker_for_whatsapp(eb_props)
+                        if msg_props:
+                            send_whatsapp_message(phone_number, msg_props)
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
 
@@ -1563,6 +1649,9 @@ def receive_message():
                 prop = PROPERTIES[prop_key]
                 referral_early = message.get("referral", {})
                 ad_image_url = referral_early.get("image_url", "")
+                # Guardar referencia a la propiedad del anuncio
+                ad_context[phone_number] = {"origen": "anuncio", "property_key": prop_key,
+                                            "texto": prop_key, "source_id": "", "source_url": prop.get("url", "")}
                 # Pre-poblar datos conocidos de la propiedad
                 if prop.get("datos"):
                     client_data.setdefault(phone_number, {}).update(prop["datos"])
