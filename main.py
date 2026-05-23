@@ -808,19 +808,24 @@ def advance_flow(phone_number):
         return True
     elif field == "uso_suelo":
         send_whatsapp_uso_suelo_buttons(phone_number)
+        chatwoot_sync_bot(phone_number, "Qué tipo de inversión tienes en mente? [Uso comercial / Renta habitacional]")
         return True
     elif field == "plazo_renta":
         send_whatsapp_plazo_renta_buttons(phone_number)
+        chatwoot_sync_bot(phone_number, "Es para renta a... [Largo plazo / Corto plazo / Airbnb]")
         return True
     elif field == "tipo_propiedad":
         send_whatsapp_tipo_propiedad_inversion_list(phone_number)
+        chatwoot_sync_bot(phone_number, "Qué tipo de propiedad te interesa? [Lista de tipos]")
         return True
     elif field == "conoce_merida":
         send_whatsapp_conoce_merida_buttons(phone_number)
+        chatwoot_sync_bot(phone_number, "Conoces las zonas de Mérida? [Conozco Mérida / Necesito orientación]")
         return True
     elif field == "presupuesto":
         tipo = "rentar" if datos.get("tipo", "").lower() == "rentar" else "comprar"
         send_whatsapp_budget_list(phone_number, tipo)
+        chatwoot_sync_bot(phone_number, "Ya tienes un rango de inversión en mente? [Lista de presupuestos]")
         return True
     # ciudad, correo, None → let GPT handle
     return False
@@ -1607,6 +1612,8 @@ def receive_message():
                     client_data[phone_number]["tipo"] = button_title
                     client_data_save(phone_number)
                     send_whatsapp_budget_list(phone_number, button_id)
+                    tipo_label = "renta" if button_id == "rentar" else "compra"
+                    chatwoot_sync_bot(phone_number, f"Ya tienes un rango de {tipo_label} en mente? [Lista de presupuestos]")
                     return "OK", 200
 
                 client_data_save(phone_number)
