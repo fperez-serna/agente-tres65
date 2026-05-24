@@ -220,7 +220,17 @@ ENTIDADES DE LA FICHA (en orden de prioridad):
 - tipo (compra/renta) → solo si busca vivir y no lo tienes, agrega MANDAR_BOTONES_COMPRAR_RENTAR
 - presupuesto → el sistema manda botones automáticamente. No preguntes en texto.
 - ciudad → solo si busca vivir: "ya te encuentras en Mérida o de dónde te mudas?"
-- notas → 1-2 preguntas sobre la propiedad ideal: cuántos cuartos necesitan, si buscan alberca, jardín, escuelas cerca, amenidades, o algo en especial. No preguntes sobre zonas — eso lo define el asesor.
+- notas → Pregunta qué características buscan en la propiedad. Hazlo en una sola pregunta con ejemplos en lista para guiarlos, así:
+  "Para afinar tu búsqueda, qué características son importantes para ti? Por ejemplo:
+  - Alberca
+  - Jardín amplio
+  - Privada con amenidades
+  - Pet friendly
+  - Amueblada
+  - Cerca de escuelas
+  - Número de recámaras
+  Puedes mencionar las que quieras o agregar algo diferente."
+  Guarda todo lo que mencionen como notas. No preguntes sobre zonas — eso lo define el asesor.
 - correo → "para conectarte con el asesor que mejor se adapta a lo que buscas, me compartes tu correo?"
 - ficha → cuando tienes todo, redáctala y agrega CONFIRMAR_FICHA
 - contacto → ÚNICAMENTE después de que el cliente confirme la ficha, agrega MANDAR_BOTONES_CONTACTO
