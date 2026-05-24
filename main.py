@@ -1983,14 +1983,23 @@ def receive_message():
                     resumen = f"Revisando mi base de datos tengo {total} opciones{' ' + caract_str if caract_str else ''}{presup_str}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
                     send_whatsapp_message(phone_number, resumen)
                     chatwoot_sync_bot(phone_number, resumen)
-                    # Continuar flujo: si falta nombre, pedirlo; si no, mandar siguiente botón
+                    # Guardar en historial para que el contexto no se pierda
+                    hist = history_get(phone_number)
+                    hist.append({"role": "user", "content": user_message})
+                    hist.append({"role": "assistant", "content": resumen})
+                    history_set(phone_number, hist[-20:])
+                    update_last_activity(phone_number)
+                    # Continuar flujo
                     datos_act2 = client_data_load(phone_number)
                     if not datos_act2.get("nombre_completo"):
                         waiting_for_name.add(phone_number)
                         send_whatsapp_message(phone_number, "con quién tengo el gusto? (nombre completo por favor)")
-                    else:
-                        advance_flow(phone_number)
-                    return "OK", 200
+                        return "OK", 200
+                    boton = advance_flow(phone_number)
+                    if boton:
+                        return "OK", 200
+                    # advance_flow no pudo mandar botón (falta ciudad, correo o notas) — dejar que GPT continúe
+                    # No retornamos: el código cae al bloque de GPT con el historial ya actualizado
 
             # Detectar negaciones en momentos clave
             negaciones = {"no", "nop", "nel", "paso", "no quiero", "prefiero no",
