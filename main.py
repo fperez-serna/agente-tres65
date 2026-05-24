@@ -1759,6 +1759,7 @@ def receive_message():
                     user_message = transcript.text.strip()
                     print(f"[{phone_number}] Audio transcrito: {user_message[:80]}")
                     send_whatsapp_message(phone_number, f"escuché: _{user_message}_")
+                    chatwoot_sync_message(phone_number, f"🎤 Audio transcrito: {user_message}", "incoming", private=True)
                 except Exception as e:
                     print(f"Error transcribiendo audio: {e}")
                     send_whatsapp_message(phone_number, "no pude escuchar bien el audio, puedes escribirlo?")
