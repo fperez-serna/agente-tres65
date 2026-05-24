@@ -1218,7 +1218,24 @@ PRESUPUESTO_PRICE_MAP = {
     "50 mil o más":          (50000,   None),
 }
 
-def easybroker_search(tipo, presupuesto, max_results=3):
+def _extract_caracteristicas(notas):
+    """Extrae filtros de EasyBroker a partir del texto de notas del cliente."""
+    if not notas:
+        return {}
+    low = notas.lower()
+    filtros = {}
+    if any(k in low for k in ["alberca", "piscina", "pool"]):
+        filtros["with_pool"] = "true"
+    for n, words in [(1, ["1 rec", "una rec", "un cuarto"]),
+                     (2, ["2 rec", "dos rec", "dos cuartos", "2 cuartos"]),
+                     (3, ["3 rec", "tres rec", "tres cuartos", "3 cuartos"]),
+                     (4, ["4 rec", "cuatro rec", "cuatro cuartos", "4 cuartos"])]:
+        if any(w in low for w in words):
+            filtros["min_bedrooms"] = n
+            break
+    return filtros
+
+def easybroker_search(tipo, presupuesto, notas="", max_results=3):
     api_key = os.environ.get("EASYBROKER_API_KEY")
     if not api_key:
         return []
@@ -1235,6 +1252,8 @@ def easybroker_search(tipo, presupuesto, max_results=3):
             params["search[min_price]"] = min_p
         if max_p:
             params["search[max_price]"] = max_p
+    for k, v in _extract_caracteristicas(notas).items():
+        params[f"search[{k}]"] = v
     try:
         r = requests.get(f"{EASYBROKER_BASE}/properties", headers=headers, params=params, timeout=10)
         if not r.ok:
@@ -1264,12 +1283,12 @@ def _eb_price(p):
 def format_easybroker_for_whatsapp(properties):
     if not properties:
         return None
-    lines = ["Aquí algunas opciones que podrían interesarte:"]
+    lines = ["Basado en lo que nos compartiste, tenemos estas opciones que podrían interesarte:\n"]
     for p in properties:
         title = p.get("title", "Propiedad")
         price = _eb_price(p)
-        url   = p.get("public_url", "")
-        lines.append(f"\n• {title}\n  {price}\n  {url}")
+        lines.append(f"• {title} — {price}")
+    lines.append("\nUn asesor estará en contacto contigo pronto para darte más detalles.")
     return "\n".join(lines)
 
 def format_easybroker_for_chatwoot(properties):
@@ -1590,21 +1609,24 @@ def receive_message():
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
                     datos_ficha = client_data_load(phone_number)
-                    # Buscar propiedades en EasyBroker
+                    notas_ficha = datos_ficha.get("notas", "")
+                    # Buscar propiedades en EasyBroker usando tipo, presupuesto y características
                     eb_props = easybroker_search(
                         datos_ficha.get("tipo", ""),
-                        datos_ficha.get("presupuesto", "")
+                        datos_ficha.get("presupuesto", ""),
+                        notas=notas_ficha
                     )
                     ficha_txt = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
                     # Enviar ficha + propiedades a Zapier y Chatwoot
                     send_zapier_ficha(phone_number, eb_props)
                     chatwoot_mark_qualified(phone_number, ficha_txt + format_easybroker_for_chatwoot(eb_props))
-                    send_whatsapp_message(phone_number, "listo, ya tengo todo. las llamadas son más eficientes, puedes agendar una en menos de un minuto. pero si prefieres WhatsApp también podemos. que te va mejor?")
-                    # Mandar propiedades al cliente si hay resultados
+                    # Mandar propiedades al cliente si hay resultados, luego botones de contacto
                     if eb_props:
                         msg_props = format_easybroker_for_whatsapp(eb_props)
                         if msg_props:
                             send_whatsapp_message(phone_number, msg_props)
+                    else:
+                        send_whatsapp_message(phone_number, "listo, ya tengo todo. un asesor estará en contacto contigo pronto.")
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
 
