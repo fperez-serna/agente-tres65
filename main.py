@@ -1957,7 +1957,8 @@ def receive_message():
                     if recamaras:
                         caract.append(f"{recamaras}+ recámaras")
                     caract_str = " ".join(caract)
-                    resumen = f"Revisando mi base de datos tengo {total} opciones{' ' + caract_str if caract_str else ''}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
+                    presup_str = f" en un presupuesto de {presup_act}" if presup_act and presup_act not in ("Lo platica con el asesor", "Por definir") else ""
+                    resumen = f"Revisando mi base de datos tengo {total} opciones{' ' + caract_str if caract_str else ''}{presup_str}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
                     send_whatsapp_message(phone_number, resumen)
                     chatwoot_sync_bot(phone_number, resumen)
                     # Continuar flujo: si falta nombre, pedirlo; si no, mandar siguiente botón
