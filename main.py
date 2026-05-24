@@ -1951,33 +1951,22 @@ def receive_message():
                                            recamaras=recamaras, alberca=alberca)
                 if eb and eb["total"] > 0:
                     total = eb["total"]
-                    beds = eb["bedrooms"]
-                    beds_str = f"de {min(beds)} a {max(beds)} recámaras" if len(beds) > 1 else (f"{beds[0]} recámaras" if beds else "")
-                    min_p = eb["min_price"]
-                    max_p = eb["max_price"]
-                    if min_p and max_p:
-                        def fmt_mxn(v):
-                            if v >= 1_000_000:
-                                return f"${v/1_000_000:.1f}M".replace(".0M", "M")
-                            return f"${v:,.0f}"
-                        precio_str = f"entre {fmt_mxn(min_p)} y {fmt_mxn(max_p)}"
-                    else:
-                        precio_str = ""
                     caract = []
                     if alberca:
                         caract.append("con alberca")
                     if recamaras:
                         caract.append(f"{recamaras}+ recámaras")
                     caract_str = " ".join(caract)
-                    resumen = f"Revisando mi base de datos tengo {total} opciones {caract_str}{' ' if caract_str else ''}"
-                    if precio_str:
-                        resumen += f"{precio_str}"
-                    if beds_str:
-                        resumen += f", {beds_str}"
-                    resumen += ". Llenemos tu ficha para mandártelas, nos toma 1 min."
+                    resumen = f"Revisando mi base de datos tengo {total} opciones{' ' + caract_str if caract_str else ''}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
                     send_whatsapp_message(phone_number, resumen)
                     chatwoot_sync_bot(phone_number, resumen)
-                    advance_flow(phone_number)
+                    # Continuar flujo: si falta nombre, pedirlo; si no, mandar siguiente botón
+                    datos_act2 = client_data_load(phone_number)
+                    if not datos_act2.get("nombre_completo"):
+                        waiting_for_name.add(phone_number)
+                        send_whatsapp_message(phone_number, "con quién tengo el gusto? (nombre completo por favor)")
+                    else:
+                        advance_flow(phone_number)
                     return "OK", 200
 
             # Detectar negaciones en momentos clave
