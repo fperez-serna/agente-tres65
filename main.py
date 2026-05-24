@@ -1864,7 +1864,11 @@ def receive_message():
                                        "aplicar", "vacante", "puesto", "empleo", "curriculum", "cv",
                                        "me gustaria formar parte", "quiero ser parte"]
             ya_en_conversacion = bool(client_data.get(phone_number, {}).get("nombre_completo") or len(history_get(phone_number)) > 2)
-            if not ya_en_conversacion and any(k in user_message.lower() for k in proveedor_keywords + reclutamiento_keywords):
+            comprador_keywords = ["comprar", "compra", "rentar", "renta", "casa", "depa", "departamento",
+                                   "propiedad", "presupuesto", "busco", "buscando", "invertir", "inversion",
+                                   "inversión", "mérida", "merida", "recámara", "recamara", "terreno"]
+            es_comprador = any(k in user_message.lower() for k in comprador_keywords)
+            if not ya_en_conversacion and not es_comprador and any(k in user_message.lower() for k in proveedor_keywords + reclutamiento_keywords):
                 SUPPLIER_MSG = (
                     "Gracias por contactarnos. Aunque este no es el canal indicado, nos da mucho gusto "
                     "recibir propuestas. Para guardarte en nuestra carpeta de proveedores/reclutamiento, "
