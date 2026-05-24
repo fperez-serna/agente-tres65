@@ -1504,9 +1504,8 @@ def receive_message():
                             if conv_orig:
                                 if es_link_directo:
                                     chatwoot_add_label(conv_orig, "link-directo")
-                                elif referral.get("source_type") == "ad" and referral.get("headline"):
+                                elif referral.get("headline"):
                                     import unicodedata
-                                    # Tomar solo hasta el primer separador (—, |, :) o 3 palabras
                                     headline_short = re.split(r"[—|:\-–]", referral["headline"])[0].strip()
                                     words = headline_short.split()[:3]
                                     raw = " ".join(words).lower()
@@ -1514,8 +1513,8 @@ def receive_message():
                                     raw = "".join(c for c in raw if unicodedata.category(c) != "Mn")
                                     slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
                                     chatwoot_add_label(conv_orig, f"ad-{slug}")
-                                # Si viene de anuncio, crear/buscar equipo con el nombre del anuncio
-                                if referral.get("source_type") == "ad" and referral.get("headline"):
+                                    print(f"[{phone_number}] Label creado: ad-{slug}")
+                                    # Crear/buscar equipo con el nombre del anuncio
                                     team_name = referral["headline"][:50]
                                     team_id = chatwoot_get_or_create_team(team_name)
                                     if team_id:
