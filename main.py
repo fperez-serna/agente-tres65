@@ -1505,7 +1505,11 @@ def receive_message():
                                 if es_link_directo:
                                     chatwoot_add_label(conv_orig, "link-directo")
                                 elif referral.get("source_type") == "ad" and referral.get("headline"):
-                                    slug = referral["headline"][:40].lower().replace(" ", "-")
+                                    import unicodedata
+                                    raw = referral["headline"][:40].lower()
+                                    raw = unicodedata.normalize("NFD", raw)
+                                    raw = "".join(c for c in raw if unicodedata.category(c) != "Mn")
+                                    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
                                     chatwoot_add_label(conv_orig, f"ad-{slug}")
                                 # Si viene de anuncio, crear/buscar equipo con el nombre del anuncio
                                 if referral.get("source_type") == "ad" and referral.get("headline"):
