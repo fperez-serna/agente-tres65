@@ -2009,8 +2009,11 @@ def receive_message():
                 if not es_pregunta and len(user_message.strip().split()) <= 4 and len(words) >= 1:
                     waiting_for_name.discard(phone_number)
                     if len(words) == 1:
-                        client_data.setdefault(phone_number, {})["nombre_completo"] = words[0].capitalize()
-                        save_nombre_redis(phone_number, words[0].capitalize())
+                        primer = words[0].capitalize()
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = primer
+                        save_nombre_redis(phone_number, primer)
+                        client_data_save(phone_number)
+                        chatwoot_update_contact_name(phone_number, primer)
                         waiting_for_apellido.add(phone_number)
                         send_whatsapp_message(phone_number, "y tu apellido?")
                         return "OK", 200
@@ -2276,6 +2279,13 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                     advance_flow(phone_number)
 
         dispatch_reply(reply)
+
+        # Si GPT capturó el nombre en esta respuesta, actualizar Chatwoot
+        nombre_actualizado = client_data.get(phone_number, {}).get("nombre_completo", "")
+        if nombre_actualizado and not _redis.get(f"cw_nombre_ok:{phone_number}") if _redis else nombre_actualizado:
+            chatwoot_update_contact_name(phone_number, nombre_actualizado)
+            if _redis:
+                _redis.setex(f"cw_nombre_ok:{phone_number}", HISTORY_TTL, "1")
 
         # Sincronizar respuesta de María como nota privada (visible en Chatwoot, no llega al cliente)
         chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
