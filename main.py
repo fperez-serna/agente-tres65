@@ -1485,14 +1485,17 @@ def receive_message():
                     referral = message.get("referral", {})
                     TEXTO_LINK_DIRECTO = "hola! necesito ayuda en mi búsqueda inmobiliaria"
                     es_link_directo = _body.strip().lower() == TEXTO_LINK_DIRECTO
-                    origen_label = "link-directo" if es_link_directo else "ad-meta"
                     try:
                         datos_orig = client_data_load(phone_number)
                         c_id_orig  = chatwoot_get_or_create_contact(phone_number, datos_orig)
                         if c_id_orig:
                             conv_orig = chatwoot_get_or_create_conversation(phone_number, c_id_orig)
                             if conv_orig:
-                                chatwoot_add_label(conv_orig, origen_label)
+                                if es_link_directo:
+                                    chatwoot_add_label(conv_orig, "link-directo")
+                                elif referral.get("source_type") == "ad" and referral.get("headline"):
+                                    slug = referral["headline"][:40].lower().replace(" ", "-")
+                                    chatwoot_add_label(conv_orig, f"ad-{slug}")
                                 # Si viene de anuncio, crear/buscar equipo con el nombre del anuncio
                                 if referral.get("source_type") == "ad" and referral.get("headline"):
                                     team_name = referral["headline"][:50]
