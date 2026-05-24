@@ -1180,11 +1180,29 @@ def easybroker_search(tipo, presupuesto, max_results=3):
             params["search[max_price]"] = max_p
     try:
         r = requests.get(f"{EASYBROKER_BASE}/properties", headers=headers, params=params, timeout=10)
-        if r.ok:
-            return r.json().get("content", [])[:max_results]
+        if not r.ok:
+            return []
+        props = r.json().get("content", [])[:max_results]
+        # Fetch full detail for public_url
+        result = []
+        for p in props:
+            pid = p.get("public_id")
+            if pid:
+                dr = requests.get(f"{EASYBROKER_BASE}/properties/{pid}", headers=headers, timeout=10)
+                if dr.ok:
+                    result.append(dr.json())
+                    continue
+            result.append(p)
+        return result
     except Exception as e:
         print(f"EasyBroker search error: {e}")
     return []
+
+def _eb_price(p):
+    ops = p.get("operations", [])
+    if ops:
+        return ops[0].get("formatted_amount", "Precio a consultar")
+    return "Precio a consultar"
 
 def format_easybroker_for_whatsapp(properties):
     if not properties:
@@ -1192,7 +1210,7 @@ def format_easybroker_for_whatsapp(properties):
     lines = ["Aquí algunas opciones que podrían interesarte:"]
     for p in properties:
         title = p.get("title", "Propiedad")
-        price = p.get("show_price", "Precio a consultar")
+        price = _eb_price(p)
         url   = p.get("public_url", "")
         lines.append(f"\n• {title}\n  {price}\n  {url}")
     return "\n".join(lines)
@@ -1203,7 +1221,7 @@ def format_easybroker_for_chatwoot(properties):
     lines = ["\n\n🏠 *Propiedades sugeridas (EasyBroker):*"]
     for p in properties:
         title = p.get("title", "Propiedad")
-        price = p.get("show_price", "")
+        price = _eb_price(p)
         url   = p.get("public_url", "")
         lines.append(f"• {title} — {price}\n  {url}")
     return "\n".join(lines)
