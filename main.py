@@ -1147,6 +1147,53 @@ def send_zapier_ficha(phone_number, eb_props=None):
 
 EASYBROKER_BASE = "https://api.easybroker.com/v1"
 
+ZONA_NORTE = ["temozón norte", "temozon norte", "cholul", "conkal", "santa gertrudis",
+              "montebello", "dzityá", "dzitya", "parque natura", "san ramon norte",
+              "norte", "north"]
+
+def easybroker_quick_count(tipo=None, presupuesto=None, recamaras=None, alberca=False, zona=None):
+    """Busca en EasyBroker y devuelve conteo + rango de precios para resumir al cliente."""
+    api_key = os.environ.get("EASYBROKER_API_KEY")
+    if not api_key:
+        return None
+    headers = {"X-Authorization": api_key, "Accept": "application/json"}
+    listing_type = "rent" if tipo and "rentar" in tipo.lower() else "sale"
+    params = {
+        "search[statuses][]": "published",
+        "search[listing_type]": listing_type,
+        "per_page": 20,
+    }
+    if presupuesto and presupuesto in PRESUPUESTO_PRICE_MAP:
+        min_p, max_p = PRESUPUESTO_PRICE_MAP[presupuesto]
+        if min_p:
+            params["search[min_price]"] = min_p
+        if max_p:
+            params["search[max_price]"] = max_p
+    if recamaras:
+        params["search[min_bedrooms]"] = recamaras
+    if alberca:
+        params["search[with_pool]"] = "true"
+    try:
+        r = requests.get(f"{EASYBROKER_BASE}/properties", headers=headers, params=params, timeout=10)
+        if not r.ok:
+            return None
+        data = r.json()
+        total = data["pagination"]["total"]
+        props = data.get("content", [])
+        prices = [op["amount"] for p in props for op in p.get("operations", []) if op.get("amount") and op.get("amount") > 1000]
+        min_price = min(prices) if prices else None
+        max_price = max(prices) if prices else None
+        beds = [p.get("bedrooms") for p in props if p.get("bedrooms")]
+        return {
+            "total": total,
+            "min_price": min_price,
+            "max_price": max_price,
+            "bedrooms": sorted(set(beds)) if beds else [],
+        }
+    except Exception as e:
+        print(f"EasyBroker quick count error: {e}")
+    return None
+
 PRESUPUESTO_PRICE_MAP = {
     "Menos de 3 millones":   (None,    2999999),
     "3.5 a 4.5 millones":    (3500000, 4500000),
@@ -1843,6 +1890,60 @@ def receive_message():
                 )
                 send_whatsapp_message(phone_number, MSG_BOT)
                 return "OK", 200
+
+            # Detectar pregunta sobre propiedades con características específicas
+            prop_query_keywords = ["alberca", "recámara", "recamara", "cuartos", "habitacion",
+                                   "habitación", "tienen casas", "tienen propiedades", "hay casas",
+                                   "hay algo", "qué tienen", "que tienen", "muestrame", "muéstrame",
+                                   "opciones", "disponible", "disponibles", "catálogo", "catalogo"]
+            if (not phone_number in waiting_for_name and
+                    any(k in user_message.lower() for k in prop_query_keywords) and
+                    len(history_get(phone_number)) > 0):
+                low = user_message.lower()
+                alberca = any(k in low for k in ["alberca", "piscina", "pool"])
+                recamaras = None
+                for n, w in [("1", ["1 rec", "un cuarto", "una rec"]),
+                              ("2", ["2 rec", "dos cuartos", "dos rec", "2 cuartos"]),
+                              ("3", ["3 rec", "tres cuartos", "tres rec", "3 cuartos"]),
+                              ("4", ["4 rec", "cuatro cuartos", "cuatro rec", "4 cuartos"])]:
+                    if any(p in low for p in w):
+                        recamaras = int(n)
+                        break
+                datos_act = client_data_load(phone_number)
+                tipo_act = datos_act.get("tipo", "")
+                presup_act = datos_act.get("presupuesto", "")
+                eb = easybroker_quick_count(tipo=tipo_act, presupuesto=presup_act,
+                                           recamaras=recamaras, alberca=alberca)
+                if eb and eb["total"] > 0:
+                    total = eb["total"]
+                    beds = eb["bedrooms"]
+                    beds_str = f"de {min(beds)} a {max(beds)} recámaras" if len(beds) > 1 else (f"{beds[0]} recámaras" if beds else "")
+                    min_p = eb["min_price"]
+                    max_p = eb["max_price"]
+                    if min_p and max_p:
+                        def fmt_mxn(v):
+                            if v >= 1_000_000:
+                                return f"${v/1_000_000:.1f}M".replace(".0M", "M")
+                            return f"${v:,.0f}"
+                        precio_str = f"entre {fmt_mxn(min_p)} y {fmt_mxn(max_p)}"
+                    else:
+                        precio_str = ""
+                    caract = []
+                    if alberca:
+                        caract.append("con alberca")
+                    if recamaras:
+                        caract.append(f"{recamaras}+ recámaras")
+                    caract_str = " ".join(caract)
+                    resumen = f"Revisando mi base de datos tengo {total} opciones {caract_str}{' ' if caract_str else ''}"
+                    if precio_str:
+                        resumen += f"{precio_str}"
+                    if beds_str:
+                        resumen += f", {beds_str}"
+                    resumen += ". Llenemos tu ficha para mandártelas, nos toma 1 min."
+                    send_whatsapp_message(phone_number, resumen)
+                    chatwoot_sync_bot(phone_number, resumen)
+                    advance_flow(phone_number)
+                    return "OK", 200
 
             # Detectar negaciones en momentos clave
             negaciones = {"no", "nop", "nel", "paso", "no quiero", "prefiero no",
