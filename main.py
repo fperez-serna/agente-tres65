@@ -938,10 +938,21 @@ def chatwoot_send_message(conv_id, text, message_type="outgoing", private=False)
                   json={"content": text, "message_type": message_type, "private": private},
                   headers=_chatwoot_headers(), timeout=5)
 
-def chatwoot_add_label(conv_id, label):
-    """Agrega una etiqueta preservando las existentes."""
+def chatwoot_ensure_label_exists(label):
+    """Crea el label en Chatwoot si no existe."""
     base = chatwoot_base()
-    # Obtener etiquetas actuales
+    r = requests.get(f"{base}/labels", headers=_chatwoot_headers(), timeout=5)
+    if r.ok:
+        existing = [l["title"] for l in r.json().get("payload", [])]
+        if label not in existing:
+            requests.post(f"{base}/labels",
+                          json={"title": label, "color": "#1F93FF"},
+                          headers=_chatwoot_headers(), timeout=5)
+
+def chatwoot_add_label(conv_id, label):
+    """Crea el label si no existe y lo agrega a la conversación."""
+    chatwoot_ensure_label_exists(label)
+    base = chatwoot_base()
     r = requests.get(f"{base}/conversations/{conv_id}/labels",
                      headers=_chatwoot_headers(), timeout=5)
     existing = r.json().get("payload", []) if r.ok else []
