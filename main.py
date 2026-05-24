@@ -1506,7 +1506,10 @@ def receive_message():
                                     chatwoot_add_label(conv_orig, "link-directo")
                                 elif referral.get("source_type") == "ad" and referral.get("headline"):
                                     import unicodedata
-                                    raw = referral["headline"][:40].lower()
+                                    # Tomar solo hasta el primer separador (—, |, :) o 3 palabras
+                                    headline_short = re.split(r"[—|:\-–]", referral["headline"])[0].strip()
+                                    words = headline_short.split()[:3]
+                                    raw = " ".join(words).lower()
                                     raw = unicodedata.normalize("NFD", raw)
                                     raw = "".join(c for c in raw if unicodedata.category(c) != "Mn")
                                     slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
