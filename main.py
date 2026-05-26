@@ -974,6 +974,22 @@ def chatwoot_add_labels(conv_id, labels):
                   json={"labels": merged},
                   headers=_chatwoot_headers(), timeout=5)
 
+
+def chatwoot_resolve_conversation(conv_id):
+    base = chatwoot_base()
+    requests.patch(f"{base}/conversations/{conv_id}",
+                   json={"status": "resolved"},
+                   headers=_chatwoot_headers(), timeout=5)
+
+
+def is_content_inappropriate(text):
+    try:
+        result = openai.moderations.create(input=text)
+        return result.results[0].flagged
+    except Exception as e:
+        print(f"[Moderación] Error: {e}")
+        return False
+
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
     if not os.environ.get("CHATWOOT_TOKEN"):
@@ -1766,6 +1782,21 @@ def receive_message():
                     return "OK", 200
             else:
                 user_message = message["text"]["body"]
+
+            # Filtro de contenido inapropiado (OpenAI Moderation API — gratis)
+            if is_content_inappropriate(user_message):
+                print(f"[{phone_number}] Contenido inapropiado detectado — bloqueado")
+                send_whatsapp_message(phone_number,
+                    "Este canal es exclusivo para asesoría inmobiliaria. "
+                    "No puedo ayudarte con ese tema. Que tengas buen día!")
+                datos_mod = client_data_load(phone_number)
+                c_id_mod = chatwoot_get_or_create_contact(phone_number, datos_mod)
+                if c_id_mod:
+                    conv_id_mod = chatwoot_get_or_create_conversation(phone_number, c_id_mod)
+                    if conv_id_mod:
+                        chatwoot_add_label(conv_id_mod, "inapropiado")
+                        chatwoot_resolve_conversation(conv_id_mod)
+                return "OK", 200
 
             # Detectar propiedad específica en primer mensaje
             is_first_message = not history_exists(phone_number)
