@@ -1553,6 +1553,8 @@ def receive_message():
                     except Exception as e:
                         print(f"Chatwoot origen error: {e}")
 
+        user_message = ""
+
         # Sincronizar botones e interacciones a Chatwoot
         if msg_type == "interactive":
             try:
@@ -1970,7 +1972,8 @@ def receive_message():
             saludos = {"hola", "hello", "hey", "buenas", "buenos días", "buenos dias",
                        "buen día", "buen dia", "buenas tardes", "buenas noches", "hi", "ey"}
             if user_message.strip().lower() in saludos and history_exists(phone_number) and len(history_get(phone_number)) > 0:
-                name = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre")
+                nombre_full = client_names.get(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
+                name = nombre_full.split()[0] if nombre_full else ""
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
                 return "OK", 200
@@ -2349,7 +2352,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         # Si GPT capturó el nombre en esta respuesta, actualizar Chatwoot
         nombre_actualizado = client_data.get(phone_number, {}).get("nombre_completo", "")
-        if nombre_actualizado and not _redis.get(f"cw_nombre_ok:{phone_number}") if _redis else nombre_actualizado:
+        if nombre_actualizado and not (_redis and _redis.get(f"cw_nombre_ok:{phone_number}")):
             chatwoot_update_contact_name(phone_number, nombre_actualizado)
             if _redis:
                 _redis.setex(f"cw_nombre_ok:{phone_number}", HISTORY_TTL, "1")
@@ -2357,7 +2360,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         # Sincronizar respuesta de María como nota privada (visible en Chatwoot, no llega al cliente)
         chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
 
-        if is_first_message:
+        if is_first_message and not client_data.get(phone_number, {}).get("nombre_completo"):
             waiting_for_name.add(phone_number)
 
         last_maria_message_time[phone_number] = datetime.now()
