@@ -1538,6 +1538,18 @@ def receive_message():
                                     team_id = chatwoot_get_or_create_team(team_name)
                                     if team_id:
                                         chatwoot_assign_team(conv_orig, team_id)
+                                    # Nota privada con contexto del anuncio
+                                    source_url = referral.get("source_url", "")
+                                    ad_note_lines = [
+                                        f"📱 *Lead de Meta Ads*",
+                                        f"• Anuncio: {referral['headline']}",
+                                    ]
+                                    if referral.get("body"):
+                                        ad_note_lines.append(f"• Descripción: {referral['body']}")
+                                    if source_url:
+                                        ad_note_lines.append(f"• URL: {source_url}")
+                                    ad_note_lines.append("• Meta envió sus plantillas automáticas de bienvenida al cliente.")
+                                    chatwoot_sync_message(phone_number, "\n".join(ad_note_lines), "incoming", private=True)
                     except Exception as e:
                         print(f"Chatwoot origen error: {e}")
 
