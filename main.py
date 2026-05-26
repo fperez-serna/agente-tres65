@@ -52,14 +52,17 @@ FOLLOWUP_23H_TEMPLATE = "follow_up_dia_siguiente"
 VENTAS_URL  = "https://www.tres65inmobiliaria.com/properties"
 RENTAS_URL  = "https://www.tres65inmobiliaria.com/rentals"
 
+_nombres_ram = {}
+
 def save_nombre_redis(phone_number, nombre_completo):
+    _nombres_ram[phone_number] = nombre_completo
     if _redis:
         _redis.setex(f"nombre:{phone_number}", HISTORY_TTL, nombre_completo)
 
 def get_nombre_redis(phone_number):
     if _redis:
-        return _redis.get(f"nombre:{phone_number}") or ""
-    return ""
+        return _redis.get(f"nombre:{phone_number}") or _nombres_ram.get(phone_number, "")
+    return _nombres_ram.get(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
 
 def client_data_save(phone_number):
     if _redis and phone_number in client_data:
@@ -363,6 +366,7 @@ def send_whatsapp_message(to, message):
     }
     response = requests.post(url, headers=headers, json=data)
     print(f"WhatsApp text: {response.status_code} - {response.text}")
+    return response.ok
 
 def send_whatsapp_image(to, image_url, caption=""):
     token = os.environ.get("WHATSAPP_TOKEN")
