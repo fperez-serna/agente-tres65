@@ -105,6 +105,8 @@ def send_followup_template(phone_number, name):
     }
     resp = requests.post(url, headers=headers, json=data)
     print(f"[{phone_number}] Template 23h: {resp.status_code}")
+    if resp.ok:
+        chatwoot_sync_bot(phone_number, f"📋 Plantilla seguimiento enviada: Hola {name}, ¿sigues buscando tu propiedad ideal? Aquí sigo para ayudarte.")
     return resp.ok
 
 def check_and_send_24h_followups():
@@ -1392,6 +1394,7 @@ def send_followup(phone_number):
         {"id": "no_listo",       "title": "Aún no estoy listo"},
         {"id": "hablar_asesor",  "title": "Hablar con asesor"},
     ])
+    chatwoot_sync_bot(phone_number, f"{text} [Catálogo Propiedades / Aún no estoy listo / Hablar con asesor]")
     follow_up_jobs.pop(phone_number, None)
     print(f"[{phone_number}] Follow-up enviado")
 
