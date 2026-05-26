@@ -1593,9 +1593,9 @@ def receive_message():
                     if list_id == "prop_orientacion":
                         client_data[phone_number]["conoce_merida"] = "Necesita orientación"
                         client_data_save(phone_number)
-                        advance_flow(phone_number)
-                    else:
-                        advance_flow(phone_number)
+                    send_whatsapp_message(phone_number, "anotado!")
+                    chatwoot_sync_bot(phone_number, "anotado!")
+                    advance_flow(phone_number)
                     return "OK", 200
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
@@ -1604,10 +1604,6 @@ def receive_message():
                 else:
                     client_data[phone_number]["presupuesto"] = list_title
                     client_data_save(phone_number)
-                    # Para inversión: ir directo a preguntas de contexto, sin pasar por GPT libre
-                    if client_data[phone_number].get("intencion") == "Para invertir":
-                        send_whatsapp_message(phone_number, "ya tienes alguna zona de Mérida en mente o prefieres que el asesor te oriente según el tipo de inversión que buscas?")
-                        return "OK", 200
                     user_message = list_title
 
             # Respuesta de botón
@@ -1664,11 +1660,15 @@ def receive_message():
                     datos_ficha = client_data_load(phone_number)
                     notas_ficha = datos_ficha.get("notas", "")
                     # Buscar propiedades en EasyBroker usando tipo, presupuesto y características
-                    eb_props = easybroker_search(
-                        datos_ficha.get("tipo", ""),
-                        datos_ficha.get("presupuesto", ""),
-                        notas=notas_ficha
-                    )
+                    try:
+                        eb_props = easybroker_search(
+                            datos_ficha.get("tipo", ""),
+                            datos_ficha.get("presupuesto", ""),
+                            notas=notas_ficha
+                        )
+                    except Exception as e:
+                        print(f"[{phone_number}] EasyBroker error en ficha: {e}")
+                        eb_props = []
                     ficha_txt = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
                     # Enviar ficha + propiedades a Zapier y Chatwoot
                     send_zapier_ficha(phone_number, eb_props)
