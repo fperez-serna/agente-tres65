@@ -1503,6 +1503,45 @@ def receive_message():
         phone_number = message["from"]
         msg_type = message.get("type", "text")
 
+        # ── Idempotency: ignorar mensajes ya procesados (Meta reintenta webhooks) ──
+        msg_id = message.get("id", "")
+        if msg_id and _redis:
+            if _redis.exists(f"msg_seen:{msg_id}"):
+                print(f"[{phone_number}] Mensaje duplicado ignorado: {msg_id}")
+                return "OK", 200
+            _redis.setex(f"msg_seen:{msg_id}", 3600, "1")
+
+        # ── Lock por teléfono: evita race conditions cuando llegan mensajes rápido ──
+        lock_key = f"lock:{phone_number}"
+        lock_acquired = False
+        if _redis:
+            lock_acquired = _redis.set(lock_key, "1", nx=True, ex=30)
+            if not lock_acquired:
+                print(f"[{phone_number}] Mensaje encolado — procesando anterior")
+                import time
+                for _ in range(10):
+                    time.sleep(0.5)
+                    if not _redis.exists(lock_key):
+                        _redis.set(lock_key, "1", nx=True, ex=30)
+                        lock_acquired = True
+                        break
+                if not lock_acquired:
+                    print(f"[{phone_number}] Lock timeout — procesando de todos modos")
+
+        # ── Read receipt: marcar mensaje como leído inmediatamente (ticks azules) ──
+        try:
+            _token = os.environ.get("WHATSAPP_TOKEN")
+            _phone_id = os.environ.get("WHATSAPP_PHONE_ID")
+            if _token and _phone_id and msg_id and msg_type in ("text", "audio", "interactive"):
+                requests.post(
+                    f"https://graph.facebook.com/v17.0/{_phone_id}/messages",
+                    headers={"Authorization": f"Bearer {_token}", "Content-Type": "application/json"},
+                    json={"messaging_product": "whatsapp", "status": "read", "message_id": msg_id},
+                    timeout=3
+                )
+        except Exception:
+            pass
+
         # Client is active — cancel any pending follow-up
         cancel_followup(phone_number)
         update_last_activity(phone_number)
@@ -2380,7 +2419,10 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         print(f"[{phone_number}] María: {reply}")
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error procesando mensaje: {e}")
+    finally:
+        if _redis and lock_acquired:
+            _redis.delete(lock_key)
 
     return "OK", 200
 
