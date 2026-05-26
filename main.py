@@ -1898,6 +1898,12 @@ def receive_message():
                     waiting_for_supplier_info.discard(phone_number)
                     send_whatsapp_message(phone_number,
                         "Muchas gracias, ya quedó guardado. En cuanto lo necesitemos nos ponemos en contacto. Que tengas excelente día!")
+                    datos_sup = client_data_load(phone_number)
+                    c_id_sup = chatwoot_get_or_create_contact(phone_number, datos_sup)
+                    if c_id_sup:
+                        conv_id_sup = chatwoot_get_or_create_conversation(phone_number, c_id_sup)
+                        if conv_id_sup:
+                            chatwoot_resolve_conversation(conv_id_sup)
                 return "OK", 200
 
             if phone_number in waiting_for_asesor_topic:
@@ -2029,7 +2035,7 @@ def receive_message():
                         caract.append(f"{recamaras}+ recámaras")
                     caract_str = " ".join(caract)
                     presup_str = f" en un presupuesto de {presup_act}" if presup_act and presup_act not in ("Lo platica con el asesor", "Por definir") else ""
-                    resumen = f"Revisando mi base de datos tengo {total} opciones{' ' + caract_str if caract_str else ''}{presup_str}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
+                    resumen = f"Revisando mi base de datos tengo opciones disponibles{' ' + caract_str if caract_str else ''}{presup_str}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
                     send_whatsapp_message(phone_number, resumen)
                     chatwoot_sync_bot(phone_number, resumen)
                     # Guardar en historial para que el contexto no se pierda
