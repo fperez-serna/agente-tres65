@@ -1430,7 +1430,7 @@ def send_zapier_ficha(phone_number, eb_props=None):
         "origen":          origen,
         "source_id":       source_id,
         "source_url":      source_url,
-        "propiedades_sugeridas": format_easybroker_for_chatwoot(eb_props or []),
+        "propiedades_sugeridas": "",
     }
     try:
         requests.post(zapier_url, json=payload, timeout=5)
@@ -1661,6 +1661,40 @@ def schedule_followup(phone_number):
     scheduler.add_job(send_followup, "date", run_date=run_time, args=[phone_number], id=job_id)
     follow_up_jobs[phone_number] = job_id
     print(f"[{phone_number}] Follow-up programado: {run_time}")
+
+
+def auto_confirm_ficha(phone_number):
+    """Si la ficha lleva 2h sin que el cliente la confirme, la confirmamos automáticamente."""
+    if phone_number in ficha_confirmada:
+        return  # ya fue confirmada manualmente
+    if _redis and not _redis.exists(f"ficha_pendiente:{phone_number}"):
+        return  # ya no está pendiente (se limpió al confirmar)
+    ficha_txt = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
+    if not ficha_txt:
+        return  # no hay ficha guardada
+    print(f"[{phone_number}] Auto-confirmando ficha por timeout 2h")
+    ficha_confirmada.add(phone_number)
+    if _redis:
+        _redis.delete(f"ficha_pendiente:{phone_number}")
+    send_zapier_ficha(phone_number, [])
+    chatwoot_mark_qualified(phone_number, ficha_txt)
+    send_whatsapp_message(phone_number,
+        "como no recibí confirmación, tomé nota de tu información y la pasé a un asesor. "
+        "En cuanto pueda te contactará. Si algo está mal, aquí seguimos.")
+    send_whatsapp_contact_buttons(phone_number)
+
+
+def schedule_ficha_autoconfirm(phone_number):
+    job_id = f"ficha_autoconfirm_{phone_number}"
+    try:
+        scheduler.remove_job(job_id)
+    except Exception:
+        pass
+    run_time = datetime.now() + timedelta(hours=2)
+    scheduler.add_job(auto_confirm_ficha, "date", run_date=run_time, args=[phone_number], id=job_id)
+    if _redis:
+        _redis.setex(f"ficha_pendiente:{phone_number}", 3 * 3600, "1")
+    print(f"[{phone_number}] Auto-confirm ficha programado: {run_time}")
 
 
 @app.route("/chatwoot-webhook", methods=["POST"])
@@ -1965,32 +1999,16 @@ def receive_message():
 
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
-                    datos_ficha = client_data_load(phone_number)
-                    notas_ficha = datos_ficha.get("notas", "")
-                    import time, random
-                    send_whatsapp_message(phone_number, "perfecto, déjame revisar las opciones disponibles para ti...")
-                    time.sleep(random.uniform(1.2, 2.2))
-                    # Buscar propiedades en EasyBroker usando tipo, presupuesto y características
+                    if _redis:
+                        _redis.delete(f"ficha_pendiente:{phone_number}")
                     try:
-                        eb_props = easybroker_search(
-                            datos_ficha.get("tipo", ""),
-                            datos_ficha.get("presupuesto", ""),
-                            notas=notas_ficha
-                        )
-                    except Exception as e:
-                        print(f"[{phone_number}] EasyBroker error en ficha: {e}")
-                        eb_props = []
+                        scheduler.remove_job(f"ficha_autoconfirm_{phone_number}")
+                    except Exception:
+                        pass
                     ficha_txt = last_ficha_text.get(phone_number, "") or (_redis.get(f"ficha:{phone_number}") if _redis else "")
-                    # Enviar ficha + propiedades a Zapier y Chatwoot
-                    send_zapier_ficha(phone_number, eb_props)
-                    chatwoot_mark_qualified(phone_number, ficha_txt + format_easybroker_for_chatwoot(eb_props))
-                    # Mandar propiedades al cliente si hay resultados, luego botones de contacto
-                    if eb_props:
-                        msg_props = format_easybroker_for_whatsapp(eb_props)
-                        if msg_props:
-                            send_whatsapp_message(phone_number, msg_props)
-                    else:
-                        send_whatsapp_message(phone_number, "listo, ya tengo todo. un asesor estará en contacto contigo pronto.")
+                    send_zapier_ficha(phone_number, [])
+                    chatwoot_mark_qualified(phone_number, ficha_txt)
+                    send_whatsapp_message(phone_number, "listo, ya tengo todo. un asesor estará en contacto contigo pronto.")
                     send_whatsapp_contact_buttons(phone_number)
                     return "OK", 200
 
@@ -2140,6 +2158,7 @@ def receive_message():
                     "Soy un asistente virtual y detecto que tus mensajes no tienen relación con el tema inmobiliario. "
                     "Voy a finalizar esta conversación. Si en algún momento quieres buscar una propiedad, con gusto te ayudo.")
                 _add_offtopic_note(phone_number, "PERSONAL_QUESTION")
+                _mark_as_spam(phone_number)
                 return "OK", 200
 
             # Detectar propiedad específica en primer mensaje
@@ -2330,58 +2349,6 @@ def receive_message():
                 send_whatsapp_message(phone_number, MSG_BOT)
                 return "OK", 200
 
-            # Detectar pregunta sobre propiedades con características específicas
-            prop_query_keywords = ["alberca", "recámara", "recamara", "cuartos", "habitacion",
-                                   "habitación", "tienen casas", "tienen propiedades", "hay casas",
-                                   "hay algo", "qué tienen", "que tienen", "muestrame", "muéstrame",
-                                   "opciones", "disponible", "disponibles", "catálogo", "catalogo"]
-            if (not phone_number in waiting_for_name and
-                    any(k in user_message.lower() for k in prop_query_keywords) and
-                    len(history_get(phone_number)) > 0):
-                low = user_message.lower()
-                alberca = any(k in low for k in ["alberca", "piscina", "pool"])
-                recamaras = None
-                for n, w in [("1", ["1 rec", "un cuarto", "una rec"]),
-                              ("2", ["2 rec", "dos cuartos", "dos rec", "2 cuartos"]),
-                              ("3", ["3 rec", "tres cuartos", "tres rec", "3 cuartos"]),
-                              ("4", ["4 rec", "cuatro cuartos", "cuatro rec", "4 cuartos"])]:
-                    if any(p in low for p in w):
-                        recamaras = int(n)
-                        break
-                datos_act = client_data_load(phone_number)
-                tipo_act = datos_act.get("tipo", "")
-                presup_act = datos_act.get("presupuesto", "")
-                eb = easybroker_quick_count(tipo=tipo_act, presupuesto=presup_act,
-                                           recamaras=recamaras, alberca=alberca)
-                if eb and eb["total"] > 0:
-                    total = eb["total"]
-                    caract = []
-                    if alberca:
-                        caract.append("con alberca")
-                    if recamaras:
-                        caract.append(f"{recamaras}+ recámaras")
-                    caract_str = " ".join(caract)
-                    presup_str = f" en un presupuesto de {presup_act}" if presup_act and presup_act not in ("Lo platica con el asesor", "Por definir") else ""
-                    resumen = f"Revisando mi base de datos tengo opciones disponibles{' ' + caract_str if caract_str else ''}{presup_str}. Llenemos tu ficha para que un asesor pueda guiarte a tu propiedad ideal, nos toma un minuto."
-                    send_whatsapp_message(phone_number, resumen)
-                    chatwoot_sync_bot(phone_number, resumen)
-                    # Guardar en historial para que el contexto no se pierda
-                    hist = history_get(phone_number)
-                    hist.append({"role": "user", "content": user_message})
-                    hist.append({"role": "assistant", "content": resumen})
-                    history_set(phone_number, hist[-20:])
-                    update_last_activity(phone_number)
-                    # Continuar flujo
-                    datos_act2 = client_data_load(phone_number)
-                    if not datos_act2.get("nombre_completo"):
-                        waiting_for_name.add(phone_number)
-                        send_whatsapp_message(phone_number, "con quién tengo el gusto? (nombre completo por favor)")
-                        return "OK", 200
-                    boton = advance_flow(phone_number)
-                    if boton:
-                        return "OK", 200
-                    # advance_flow no pudo mandar botón (falta ciudad, correo o notas) — dejar que GPT continúe
-                    # No retornamos: el código cae al bloque de GPT con el historial ya actualizado
 
             # Detectar negaciones en momentos clave
             negaciones = {"no", "nop", "nel", "paso", "no quiero", "prefiero no",
@@ -2477,7 +2444,12 @@ def receive_message():
         # Pausa de lectura — simula que María leyó el mensaje antes de responder
         import time, random
         words_in = len(user_message.split())
-        read_pause = min(0.3 + words_in * 0.04, 1.8) + random.uniform(0, 0.4)
+        _hist_check = history_get(phone_number)
+        if len(_hist_check) == 0:
+            # Primer mensaje: pausa más larga para parecer que el bot "procesa" la nueva conversación
+            read_pause = random.uniform(8, 20)
+        else:
+            read_pause = min(0.3 + words_in * 0.04, 2.5) + random.uniform(0.3, 1.0)
         time.sleep(read_pause)
 
         history = history_get(phone_number)
@@ -2655,6 +2627,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 if _redis:
                     _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
                 send_whatsapp_ficha_confirmation(phone_number, ficha_text)
+                schedule_ficha_autoconfirm(phone_number)
                 return  # ficha confirmation is terminal — nothing else needed
 
             # --- Step 3: send the plain text (only if no CONFIRMAR_FICHA) ---
