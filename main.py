@@ -1245,7 +1245,7 @@ def _add_offtopic_note(phone_number, category):
     }
     note = notes.get(category)
     if note:
-        chatwoot_sync_message(phone_number, note, "incoming", private=True)
+        chatwoot_sync_message(phone_number, note, "outgoing", private=True)
 
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
@@ -1711,9 +1711,9 @@ def chatwoot_webhook():
         if msg.get("private", False):
             return "OK", 200
 
-        # Solo reenviar mensajes de agentes humanos (no del bot ni del sistema)
+        # Solo reenviar mensajes de agentes humanos — nunca del cliente ni del sistema
         sender_type = msg.get("sender", {}).get("type", "")
-        if sender_type not in ("agent", "user"):
+        if sender_type != "agent":
             return "OK", 200
 
         content = msg.get("content", "").strip()
