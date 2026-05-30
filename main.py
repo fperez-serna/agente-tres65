@@ -2129,7 +2129,7 @@ def receive_message():
                 if _redis:
                     _redis.setex(f"romantic_warned:{phone_number}", 7 * 24 * 3600, "1")
                 send_whatsapp_message(phone_number,
-                    "Gracias por tus palabras 😊 Soy un asistente virtual especializado en bienes raíces, "
+                    "Soy un asistente virtual especializado en bienes raíces, "
                     "así que mi enfoque es ayudarte a encontrar tu propiedad ideal. "
                     "¿En qué te puedo ayudar hoy?")
                 _add_offtopic_note(phone_number, "ROMANTIC")
