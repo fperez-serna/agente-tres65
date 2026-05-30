@@ -155,8 +155,43 @@ ficha_confirmada = set()              # clientes cuya ficha ya fue confirmada
 last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
+def delete_spam_conversations():
+    """Borra todas las conversaciones con label 'spam' en Chatwoot. Corre a medianoche Mérida."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        base = chatwoot_base()
+        headers = _chatwoot_headers()
+        page = 1
+        deleted = 0
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"labels[]": "spam", "page": page},
+                             headers=headers, timeout=10)
+            if not r.ok:
+                break
+            data = r.json()
+            convs = data.get("data", {}).get("payload", [])
+            if not convs:
+                break
+            for conv in convs:
+                cid = conv.get("id")
+                if cid:
+                    requests.delete(f"{base}/conversations/{cid}",
+                                    headers=headers, timeout=10)
+                    deleted += 1
+            if len(convs) < 25:
+                break
+            page += 1
+        print(f"[Limpieza] Conversaciones spam borradas: {deleted}")
+    except Exception as e:
+        print(f"[Limpieza] Error borrando spam: {e}")
+
+
 scheduler = BackgroundScheduler()
 scheduler.add_job(check_and_send_24h_followups, "interval", hours=1, id="followup_23h")
+scheduler.add_job(delete_spam_conversations, "cron", hour=0, minute=0,
+                  timezone="America/Merida", id="limpieza_spam")
 scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
