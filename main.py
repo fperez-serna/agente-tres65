@@ -2343,6 +2343,57 @@ def receive_message():
                 send_leads_report(extra_phone=phone_number)
                 return "OK", 200
 
+            if user_message.strip().lower() == "reporte_redis365":
+                send_whatsapp_message(phone_number, "generando reporte desde redis, un momento...")
+                import threading
+                def _redis_report():
+                    try:
+                        if not _redis:
+                            send_whatsapp_message(phone_number, "error: redis no disponible")
+                            return
+                        phones_set = _redis.smembers("active_phones") or set()
+                        from datetime import timezone, timedelta
+                        hoy = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y")
+                        leads = []
+                        for ph in phones_set:
+                            raw = _redis.get(f"cdata:{ph}")
+                            if not raw:
+                                continue
+                            datos = json.loads(raw)
+                            nombre = datos.get("nombre_completo", "")
+                            if not nombre:
+                                continue
+                            correo = datos.get("correo", "—")
+                            ficha = _redis.get(f"ficha:{ph}") or ""
+                            origen = "—"
+                            notas = "—"
+                            if ficha:
+                                for line in ficha.splitlines():
+                                    if line.startswith("Origen:"):
+                                        origen = line.replace("Origen:", "").strip()
+                                    if line.startswith("Notas:"):
+                                        notas = line.replace("Notas:", "").strip()
+                            leads.append({"name": nombre, "phone": f"+{ph}",
+                                          "email": correo, "origen": origen, "notas": notas})
+                        if not leads:
+                            send_whatsapp_message(phone_number, f"📋 Reporte Redis — {hoy}\n\nSin leads encontrados.")
+                            return
+                        lineas = [f"📋 Leads en Redis — {hoy}\n"]
+                        for i, l in enumerate(leads, 1):
+                            lineas.append(
+                                f"{i}. {l['name']}\n"
+                                f"   📱 {l['phone']}\n"
+                                f"   📧 {l['email']}\n"
+                                f"   📢 {l['origen']}\n"
+                                f"   📝 {l['notas']}"
+                            )
+                        lineas.append(f"\nTotal: {len(leads)}")
+                        send_whatsapp_message(phone_number, "\n\n".join(lineas))
+                    except Exception as e:
+                        send_whatsapp_message(phone_number, f"error reporte redis: {e}")
+                threading.Thread(target=_redis_report, daemon=True).start()
+                return "OK", 200
+
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
             if _redis and _redis.exists(f"agent_active:{phone_number}"):
                 print(f"[{phone_number}] Agente activo — bot pausado")
