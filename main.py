@@ -1645,6 +1645,11 @@ def receive_message():
                 return "OK", 200
             _redis.setex(f"msg_seen:{msg_id}", 3600, "1")
 
+        # ── Spam: ignorar permanentemente antes de cualquier sync a Chatwoot ──
+        if _redis and _redis.exists(f"spam:{phone_number}"):
+            print(f"[{phone_number}] Número spam — ignorado silenciosamente")
+            return "OK", 200
+
         # ── Lock por teléfono: evita race conditions cuando llegan mensajes rápido ──
         lock_key = f"lock:{phone_number}"
         lock_acquired = False
@@ -2068,11 +2073,6 @@ def receive_message():
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
-                return "OK", 200
-
-            # Número marcado como spam — ignorar permanentemente
-            if _redis and _redis.exists(f"spam:{phone_number}"):
-                print(f"[{phone_number}] Número spam — ignorado")
                 return "OK", 200
 
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
