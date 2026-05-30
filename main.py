@@ -189,9 +189,9 @@ def delete_spam_conversations():
 
 
 def send_leads_report():
-    """Genera y manda por WhatsApp el reporte diario de leads con label cliente-potencial."""
-    token    = os.environ.get("CHATWOOT_TOKEN")
-    phones   = [p.strip() for p in [
+    """Genera y manda por WhatsApp solo los leads nuevos con label cliente-potencial."""
+    token  = os.environ.get("CHATWOOT_TOKEN")
+    phones = [p.strip() for p in [
         os.environ.get("REPORTE_PHONE_1", ""),
         os.environ.get("REPORTE_PHONE_2", ""),
     ] if p.strip()]
@@ -202,7 +202,7 @@ def send_leads_report():
         base    = chatwoot_base()
         headers = _chatwoot_headers()
         page    = 1
-        leads   = []
+        nuevos  = []
         while True:
             r = requests.get(f"{base}/conversations",
                              params={"labels[]": "cliente-potencial", "page": page},
@@ -213,40 +213,40 @@ def send_leads_report():
             if not convs:
                 break
             for conv in convs:
-                meta     = conv.get("meta", {})
-                sender   = meta.get("sender", {})
-                name     = sender.get("name", "—")
-                phone    = sender.get("phone_number", "—")
-                email    = sender.get("email", "") or "—"
-                # Buscar label de anuncio
+                conv_id  = str(conv.get("id", ""))
+                redis_key = f"reported_lead:{conv_id}"
+                # Saltar si ya fue reportado antes
+                if _redis and _redis.exists(redis_key):
+                    continue
+                meta    = conv.get("meta", {})
+                sender  = meta.get("sender", {})
+                name    = sender.get("name", "—")
+                phone   = sender.get("phone_number", "—")
+                email   = sender.get("email", "") or "—"
                 conv_labels = conv.get("labels", [])
                 ad_label = next((l for l in conv_labels if l.startswith("ad-")), None)
                 origen   = ad_label.replace("ad-", "").replace("-", " ").title() if ad_label else "Link directo"
-                # Último mensaje no privado como nota
                 last_msg = ""
-                msgs_r = requests.get(f"{base}/conversations/{conv['id']}/messages",
+                msgs_r = requests.get(f"{base}/conversations/{conv_id}/messages",
                                       headers=headers, timeout=5)
                 if msgs_r.ok:
                     all_msgs = msgs_r.json().get("payload", [])
-                    # Buscar nota de lead calificado (activity message con LEAD CALIFICADO)
                     for m in reversed(all_msgs):
                         content = m.get("content", "")
                         if "LEAD CALIFICADO" in content:
-                            # Extraer solo las Notas de la ficha
                             for line in content.splitlines():
                                 if line.startswith("Notas:"):
                                     last_msg = line.replace("Notas:", "").strip()
                                     break
                             break
                     if not last_msg:
-                        # Fallback: último mensaje público del cliente
                         for m in reversed(all_msgs):
                             if m.get("message_type") == 0 and not m.get("private"):
                                 last_msg = m.get("content", "")[:120]
                                 break
-                leads.append({
-                    "name": name, "phone": phone, "email": email,
-                    "origen": origen, "notas": last_msg or "—"
+                nuevos.append({
+                    "conv_id": conv_id, "name": name, "phone": phone,
+                    "email": email, "origen": origen, "notas": last_msg or "—"
                 })
             if len(convs) < 25:
                 break
@@ -254,11 +254,11 @@ def send_leads_report():
 
         from datetime import timezone, timedelta
         hoy = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y")
-        if not leads:
-            texto = f"📋 Reporte leads cliente-potencial — {hoy}\n\nSin leads con ese label por ahora."
+        if not nuevos:
+            texto = f"📋 Reporte leads — {hoy}\n\nSin leads nuevos hoy."
         else:
-            lineas = [f"📋 Reporte leads cliente-potencial — {hoy}\n"]
-            for i, l in enumerate(leads, 1):
+            lineas = [f"📋 Leads nuevos — {hoy}\n"]
+            for i, l in enumerate(nuevos, 1):
                 lineas.append(
                     f"{i}. {l['name']}\n"
                     f"   📱 {l['phone']}\n"
@@ -266,12 +266,18 @@ def send_leads_report():
                     f"   📢 {l['origen']}\n"
                     f"   📝 {l['notas']}"
                 )
-            lineas.append(f"\nTotal: {len(leads)} leads")
+            lineas.append(f"\nTotal nuevos: {len(nuevos)}")
             texto = "\n\n".join(lineas)
 
         for dest in phones:
             send_whatsapp_message(dest, texto)
-            print(f"[Reporte] Enviado a {dest} — {len(leads)} leads")
+            print(f"[Reporte] Enviado a {dest} — {len(nuevos)} leads nuevos")
+
+        # Marcar todos los reportados para no repetirlos mañana
+        if _redis:
+            for l in nuevos:
+                _redis.set(f"reported_lead:{l['conv_id']}", "1")
+
     except Exception as e:
         print(f"[Reporte] Error: {e}")
 
