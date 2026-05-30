@@ -1754,6 +1754,15 @@ def receive_message():
                 return "OK", 200
             _redis.setex(f"msg_seen:{msg_id}", 3600, "1")
 
+        # ── Comando unspam365: desbloquea número antes del check de spam ──
+        _raw_body = message.get("text", {}).get("body", "").strip().lower()
+        if _raw_body == "unspam365" and _redis:
+            _redis.delete(f"spam:{phone_number}")
+            _redis.delete(f"romantic_warned:{phone_number}")
+            reset_conversation(phone_number)
+            send_whatsapp_message(phone_number, "Número desbloqueado. Conversación reiniciada 👋")
+            return "OK", 200
+
         # ── Spam: ignorar permanentemente antes de cualquier sync a Chatwoot ──
         if _redis and _redis.exists(f"spam:{phone_number}"):
             print(f"[{phone_number}] Número spam — ignorado silenciosamente")
