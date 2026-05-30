@@ -990,49 +990,123 @@ def chatwoot_resolve_conversation(conv_id):
                    headers=_chatwoot_headers(), timeout=5)
 
 
-def is_content_inappropriate(text):
-    try:
-        result = openai.moderations.create(input=text)
-        return result.results[0].flagged
-    except Exception as e:
-        print(f"[Moderación] Error: {e}")
-        return False
+def _normalize_text(text: str) -> str:
+    import unicodedata
+    text = text.lower().strip()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = re.sub(r"\s+", " ", text)
+    return text
 
 
-def is_spam_message(text):
+def _regex_classify(text: str):
     import unicodedata, itertools
-    if not text or len(text.strip()) < 2:
-        return False
-    clean = text.strip()
+    t = _normalize_text(text)
 
-    # Mashing de teclado: sin espacios + casi sin vocales + largo > 7
+    # Mashing / emoji spam (INSULT-like noise)
+    clean = text.strip()
     if len(clean) > 7 and " " not in clean.replace("!", "").replace("?", ""):
         vowels = set("aeiouáéíóúàèìòùäëïöü")
-        vowel_ratio = sum(1 for c in clean.lower() if c in vowels) / len(clean)
-        if vowel_ratio < 0.10:
-            return True
-
-    # Carácter repetido dominante: "aaaaaaa", "jjjjjjjj"
+        if sum(1 for c in clean.lower() if c in vowels) / len(clean) < 0.10:
+            return "INSULT"
     if len(clean) > 5:
         max_run = max(len(list(g)) for _, g in itertools.groupby(clean.lower()))
         if max_run / len(clean) > 0.55:
-            return True
-
-    # Spam de emojis: >50% del texto son emojis y hay más de 3
-    emoji_count = sum(
-        1 for c in text
-        if unicodedata.category(c) in ("So", "Sm") or 0x1F300 <= ord(c) <= 0x1FAFF
-    )
+            return "INSULT"
+    emoji_count = sum(1 for c in text if unicodedata.category(c) in ("So","Sm") or 0x1F300 <= ord(c) <= 0x1FAFF)
     if emoji_count > 3 and emoji_count / max(len(text), 1) > 0.50:
-        return True
+        return "INSULT"
 
-    return False
+    sexual_patterns = [
+        r"sex(o|ual|y)?", r"cog(er|erte|iendo)", r"foll(ar|arte|ando)",
+        r"desn(uda|udo|os)", r"encuer(ada|ado)", r"caliente", r"excita(da|do)",
+        r"orgasmo", r"fetiche", r"hacer el amor", r"quiero tocarte",
+        r"fotos? sex", r"pack", r"onlyfans", r"porno", r"porno",
+        r"pene", r"vagina", r"verga", r"pito", r"culo", r"nalgas",
+        r"masturbacion", r"masturb", r"stripper",
+    ]
+    for p in sexual_patterns:
+        if re.search(p, t):
+            return "SEXUAL"
+
+    insult_patterns = [
+        r"puta(s)?", r"puto(s)?", r"mam(a|o)n", r"pendejo", r"idiota",
+        r"estupido", r"imbecil", r"cabron", r"chinga(te|r|da)?",
+        r"joto", r"maricon", r"mierda", r"basura", r"inutil",
+    ]
+    for p in insult_patterns:
+        if re.search(p, t):
+            return "INSULT"
+
+    romantic_patterns = [
+        r"te (amo|quiero|adoro|extraño)", r"me (gustas|encantas|fascinas)",
+        r"estoy enamorado", r"quiero salir contigo", r"sal conmigo",
+        r"se(rias)? mi novia", r"casate conmigo", r"dame un beso",
+        r"besame", r"pienso en ti", r"eres (muy )?bonita",
+    ]
+    romantic_words = [
+        "mi amor", "reina", "princesa", "preciosa", "hermosa", "bella",
+        "bonita", "linda", "guapa", "cariño", "cariñito", "muñeca",
+        "muñequita", "mamita", "mamacita", "mami", "baby", "bebe",
+        "bebé", "chula", "chiquita", "amor",
+    ]
+    for p in romantic_patterns:
+        if re.search(p, t):
+            return "ROMANTIC"
+    for w in romantic_words:
+        if w in t:
+            return "ROMANTIC"
+
+    personal_patterns = [
+        r"estas? (soltera|casada|casado|soltero)", r"tienes (novio|novia|pareja|esposo|esposa)",
+        r"cu(a|á)ntos años tienes", r"qu(e|é) edad tienes", r"d(o|ó)nde (vives|estas?)",
+        r"cu(a|á)l es tu nombre real", r"eres (real|humana?|mujer|hombre)",
+        r"tienes (instagram|whatsapp|telegram|facebook)",
+        r"dame tu n(u|ú)mero", r"(m(a|á)ndame|env(i|í)a) (una )?foto",
+        r"c(o|ó)mo te ves", r"tienes hijos",
+    ]
+    for p in personal_patterns:
+        if re.search(p, t):
+            return "PERSONAL_QUESTION"
+
+    return None
+
+
+def _openai_classify(text: str) -> str:
+    try:
+        resp = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": (
+                    "Clasifica el mensaje del usuario en exactamente una de estas categorías:\n"
+                    "PROPERTY_RELATED, PERSONAL_QUESTION, ROMANTIC, SEXUAL, INSULT, NORMAL\n"
+                    "Responde ÚNICAMENTE con la categoría, sin explicación."
+                )},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=10,
+            temperature=0,
+        )
+        return resp.choices[0].message.content.strip().upper()
+    except Exception as e:
+        print(f"[Classify] OpenAI error: {e}")
+        return "NORMAL"
+
+
+def classify_message(text: str) -> dict:
+    regex_result = _regex_classify(text)
+    if regex_result:
+        return {"category": regex_result, "confidence": "high", "source": "regex"}
+    category = _openai_classify(text)
+    if category not in ("PROPERTY_RELATED", "PERSONAL_QUESTION", "ROMANTIC", "SEXUAL", "INSULT", "NORMAL"):
+        category = "NORMAL"
+    return {"category": category, "confidence": "medium", "source": "openai"}
 
 
 def _mark_as_spam(phone_number):
     """Marca número como spam permanentemente, aplica label rojo y resuelve en Chatwoot."""
     if _redis:
-        _redis.set(f"spam:{phone_number}", "1")  # sin TTL — permanente
+        _redis.set(f"spam:{phone_number}", "1")
     try:
         chatwoot_ensure_label_exists("spam", color="#FF0000")
         datos = client_data_load(phone_number)
@@ -1044,6 +1118,17 @@ def _mark_as_spam(phone_number):
                 chatwoot_resolve_conversation(conv_id)
     except Exception as e:
         print(f"[Spam] Error aplicando label: {e}")
+
+
+def _add_offtopic_note(phone_number, category):
+    """Nota privada en Chatwoot visible solo para agentes."""
+    notes = {
+        "ROMANTIC":          "💛 Este cliente está siendo romántico con el bot. María ya redirigió la conversación. Si persiste, ignorar.",
+        "PERSONAL_QUESTION": "💬 Este cliente hizo preguntas personales al bot (edad, nombre real, etc.). María ya redirigió. Posible lead — mantener en flujo.",
+    }
+    note = notes.get(category)
+    if note:
+        chatwoot_sync_message(phone_number, note, "incoming", private=True)
 
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
@@ -1892,11 +1977,37 @@ def receive_message():
             else:
                 user_message = message["text"]["body"]
 
-            # Filtro de spam local (emojis, mashing de teclado) + contenido inapropiado
-            if is_spam_message(user_message) or is_content_inappropriate(user_message):
-                print(f"[{phone_number}] Spam/contenido inapropiado — bloqueado permanentemente")
+            # Clasificador de mensajes inapropiados
+            clf = classify_message(user_message)
+            category = clf["category"]
+            print(f"[{phone_number}] Clasificación: {clf}")
+
+            if category in ("SEXUAL", "INSULT"):
                 _mark_as_spam(phone_number)
                 return "OK", 200
+
+            if category == "ROMANTIC":
+                if _redis and _redis.exists(f"romantic_warned:{phone_number}"):
+                    # Segunda vez — bloqueo permanente
+                    _mark_as_spam(phone_number)
+                    return "OK", 200
+                # Primera vez — María redirige y se anota en Chatwoot
+                if _redis:
+                    _redis.setex(f"romantic_warned:{phone_number}", 7 * 24 * 3600, "1")
+                send_whatsapp_message(phone_number,
+                    "Gracias por tus palabras 😊 Soy un asistente virtual especializado en bienes raíces, "
+                    "así que mi enfoque es ayudarte a encontrar tu propiedad ideal. "
+                    "¿En qué te puedo ayudar hoy?")
+                _add_offtopic_note(phone_number, "ROMANTIC")
+                return "OK", 200
+
+            if category == "PERSONAL_QUESTION":
+                send_whatsapp_message(phone_number,
+                    "Soy María, asistente virtual de TRES65 Inmobiliaria 🏠 "
+                    "No tengo datos personales, pero sí mucho conocimiento sobre propiedades en Mérida. "
+                    "¿Estás buscando comprar, rentar o invertir?")
+                _add_offtopic_note(phone_number, "PERSONAL_QUESTION")
+                # No return — continúa el flujo normal por si quiere seguir
 
             # Detectar propiedad específica en primer mensaje
             is_first_message = not history_exists(phone_number)
