@@ -122,6 +122,8 @@ def check_and_send_24h_followups():
         phones  = _redis.smembers("active_phones")
         cutoff  = datetime.now() - timedelta(hours=23)
         for phone in phones:
+            if _redis.exists(f"spam:{phone}"):
+                continue
             if _redis.exists(f"template_sent:{phone}"):
                 continue
             last_raw = _redis.get(f"last_activity:{phone}")
@@ -944,7 +946,7 @@ def chatwoot_send_message(conv_id, text, message_type="outgoing", private=False)
                   json={"content": text, "message_type": message_type, "private": private},
                   headers=_chatwoot_headers(), timeout=5)
 
-def chatwoot_ensure_label_exists(label):
+def chatwoot_ensure_label_exists(label, color="#1F93FF"):
     """Crea el label en Chatwoot si no existe."""
     base = chatwoot_base()
     r = requests.get(f"{base}/labels", headers=_chatwoot_headers(), timeout=5)
@@ -952,7 +954,7 @@ def chatwoot_ensure_label_exists(label):
         existing = [l["title"] for l in r.json().get("payload", [])]
         if label not in existing:
             requests.post(f"{base}/labels",
-                          json={"title": label, "color": "#1F93FF"},
+                          json={"title": label, "color": color},
                           headers=_chatwoot_headers(), timeout=5)
 
 def chatwoot_add_label(conv_id, label):
@@ -995,6 +997,53 @@ def is_content_inappropriate(text):
     except Exception as e:
         print(f"[Moderación] Error: {e}")
         return False
+
+
+def is_spam_message(text):
+    import unicodedata, itertools
+    if not text or len(text.strip()) < 2:
+        return False
+    clean = text.strip()
+
+    # Mashing de teclado: sin espacios + casi sin vocales + largo > 7
+    if len(clean) > 7 and " " not in clean.replace("!", "").replace("?", ""):
+        vowels = set("aeiouáéíóúàèìòùäëïöü")
+        vowel_ratio = sum(1 for c in clean.lower() if c in vowels) / len(clean)
+        if vowel_ratio < 0.10:
+            return True
+
+    # Carácter repetido dominante: "aaaaaaa", "jjjjjjjj"
+    if len(clean) > 5:
+        max_run = max(len(list(g)) for _, g in itertools.groupby(clean.lower()))
+        if max_run / len(clean) > 0.55:
+            return True
+
+    # Spam de emojis: >50% del texto son emojis y hay más de 3
+    emoji_count = sum(
+        1 for c in text
+        if unicodedata.category(c) in ("So", "Sm") or 0x1F300 <= ord(c) <= 0x1FAFF
+    )
+    if emoji_count > 3 and emoji_count / max(len(text), 1) > 0.50:
+        return True
+
+    return False
+
+
+def _mark_as_spam(phone_number):
+    """Marca número como spam permanentemente, aplica label rojo y resuelve en Chatwoot."""
+    if _redis:
+        _redis.set(f"spam:{phone_number}", "1")  # sin TTL — permanente
+    try:
+        chatwoot_ensure_label_exists("spam", color="#FF0000")
+        datos = client_data_load(phone_number)
+        c_id = chatwoot_get_or_create_contact(phone_number, datos)
+        if c_id:
+            conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+            if conv_id:
+                chatwoot_add_label(conv_id, "spam")
+                chatwoot_resolve_conversation(conv_id)
+    except Exception as e:
+        print(f"[Spam] Error aplicando label: {e}")
 
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
@@ -1843,19 +1892,10 @@ def receive_message():
             else:
                 user_message = message["text"]["body"]
 
-            # Filtro de contenido inapropiado (OpenAI Moderation API — gratis)
-            if is_content_inappropriate(user_message):
-                print(f"[{phone_number}] Contenido inapropiado detectado — bloqueado")
-                send_whatsapp_message(phone_number,
-                    "Este canal es exclusivo para asesoría inmobiliaria. "
-                    "No puedo ayudarte con ese tema. Que tengas buen día!")
-                datos_mod = client_data_load(phone_number)
-                c_id_mod = chatwoot_get_or_create_contact(phone_number, datos_mod)
-                if c_id_mod:
-                    conv_id_mod = chatwoot_get_or_create_conversation(phone_number, c_id_mod)
-                    if conv_id_mod:
-                        chatwoot_add_label(conv_id_mod, "inapropiado")
-                        chatwoot_resolve_conversation(conv_id_mod)
+            # Filtro de spam local (emojis, mashing de teclado) + contenido inapropiado
+            if is_spam_message(user_message) or is_content_inappropriate(user_message):
+                print(f"[{phone_number}] Spam/contenido inapropiado — bloqueado permanentemente")
+                _mark_as_spam(phone_number)
                 return "OK", 200
 
             # Detectar propiedad específica en primer mensaje
@@ -1917,6 +1957,11 @@ def receive_message():
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
+                return "OK", 200
+
+            # Número marcado como spam — ignorar permanentemente
+            if _redis and _redis.exists(f"spam:{phone_number}"):
+                print(f"[{phone_number}] Número spam — ignorado")
                 return "OK", 200
 
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
