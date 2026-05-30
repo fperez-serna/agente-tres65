@@ -188,10 +188,100 @@ def delete_spam_conversations():
         print(f"[Limpieza] Error borrando spam: {e}")
 
 
+def send_leads_report():
+    """Genera y manda por WhatsApp el reporte diario de leads con label cliente-potencial."""
+    token    = os.environ.get("CHATWOOT_TOKEN")
+    phones   = [p.strip() for p in [
+        os.environ.get("REPORTE_PHONE_1", ""),
+        os.environ.get("REPORTE_PHONE_2", ""),
+    ] if p.strip()]
+    if not token or not phones:
+        print("[Reporte] Sin token o sin números destino — omitido")
+        return
+    try:
+        base    = chatwoot_base()
+        headers = _chatwoot_headers()
+        page    = 1
+        leads   = []
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"labels[]": "cliente-potencial", "page": page},
+                             headers=headers, timeout=10)
+            if not r.ok:
+                break
+            convs = r.json().get("data", {}).get("payload", [])
+            if not convs:
+                break
+            for conv in convs:
+                meta     = conv.get("meta", {})
+                sender   = meta.get("sender", {})
+                name     = sender.get("name", "—")
+                phone    = sender.get("phone_number", "—")
+                email    = sender.get("email", "") or "—"
+                # Buscar label de anuncio
+                conv_labels = conv.get("labels", [])
+                ad_label = next((l for l in conv_labels if l.startswith("ad-")), None)
+                origen   = ad_label.replace("ad-", "").replace("-", " ").title() if ad_label else "Link directo"
+                # Último mensaje no privado como nota
+                last_msg = ""
+                msgs_r = requests.get(f"{base}/conversations/{conv['id']}/messages",
+                                      headers=headers, timeout=5)
+                if msgs_r.ok:
+                    all_msgs = msgs_r.json().get("payload", [])
+                    # Buscar nota de lead calificado (activity message con LEAD CALIFICADO)
+                    for m in reversed(all_msgs):
+                        content = m.get("content", "")
+                        if "LEAD CALIFICADO" in content:
+                            # Extraer solo las Notas de la ficha
+                            for line in content.splitlines():
+                                if line.startswith("Notas:"):
+                                    last_msg = line.replace("Notas:", "").strip()
+                                    break
+                            break
+                    if not last_msg:
+                        # Fallback: último mensaje público del cliente
+                        for m in reversed(all_msgs):
+                            if m.get("message_type") == 0 and not m.get("private"):
+                                last_msg = m.get("content", "")[:120]
+                                break
+                leads.append({
+                    "name": name, "phone": phone, "email": email,
+                    "origen": origen, "notas": last_msg or "—"
+                })
+            if len(convs) < 25:
+                break
+            page += 1
+
+        from datetime import timezone, timedelta
+        hoy = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y")
+        if not leads:
+            texto = f"📋 Reporte leads cliente-potencial — {hoy}\n\nSin leads con ese label por ahora."
+        else:
+            lineas = [f"📋 Reporte leads cliente-potencial — {hoy}\n"]
+            for i, l in enumerate(leads, 1):
+                lineas.append(
+                    f"{i}. {l['name']}\n"
+                    f"   📱 {l['phone']}\n"
+                    f"   📧 {l['email']}\n"
+                    f"   📢 {l['origen']}\n"
+                    f"   📝 {l['notas']}"
+                )
+            lineas.append(f"\nTotal: {len(leads)} leads")
+            texto = "\n\n".join(lineas)
+
+        for dest in phones:
+            send_whatsapp_message(dest, texto)
+            print(f"[Reporte] Enviado a {dest} — {len(leads)} leads")
+    except Exception as e:
+        print(f"[Reporte] Error: {e}")
+
+
 scheduler = BackgroundScheduler()
 scheduler.add_job(check_and_send_24h_followups, "interval", hours=1, id="followup_23h")
 scheduler.add_job(delete_spam_conversations, "cron", hour=0, minute=0,
                   timezone="America/Merida", id="limpieza_spam")
+scheduler.add_job(send_leads_report, "cron", hour=16, minute=0,
+                  timezone="America/Merida", id="reporte_leads")
 scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
@@ -2220,6 +2310,11 @@ def receive_message():
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
+                return "OK", 200
+
+            if user_message.strip().lower() == "reporte365":
+                send_whatsapp_message(phone_number, "generando reporte, un momento...")
+                send_leads_report()
                 return "OK", 200
 
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
