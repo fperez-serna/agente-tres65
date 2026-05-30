@@ -1176,6 +1176,42 @@ def classify_message(text: str) -> dict:
     return {"category": category, "confidence": "medium", "source": "openai"}
 
 
+def _split_into_fragments(text):
+    """Divide texto en 1-3 fragmentos naturales para WhatsApp."""
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) < 90:
+        return [text]
+    # Dividir en párrafos dobles primero
+    parts = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if 2 <= len(parts) <= 3:
+        return parts
+    # Dividir por oración en el punto medio
+    if len(text) > 160:
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        if len(sentences) >= 2:
+            mid = max(1, len(sentences) // 2)
+            p1 = " ".join(sentences[:mid])
+            p2 = " ".join(sentences[mid:])
+            if len(p1) > 20 and len(p2) > 20:
+                return [p1, p2]
+    return [text]
+
+
+def _send_humanized(phone_number, text):
+    """Envía texto con timing humano — fragmentado con pausas naturales entre mensajes."""
+    import time, random
+    if not text:
+        return
+    fragments = _split_into_fragments(text)
+    for i, fragment in enumerate(fragments):
+        if i > 0:
+            pause = random.uniform(0.7, 1.6)
+            time.sleep(pause)
+        send_whatsapp_message(phone_number, fragment)
+
+
 def _mark_as_spam(phone_number):
     """Marca número como spam permanentemente, aplica label rojo y resuelve en Chatwoot."""
     if _redis:
@@ -1914,6 +1950,9 @@ def receive_message():
                     ficha_confirmada.add(phone_number)
                     datos_ficha = client_data_load(phone_number)
                     notas_ficha = datos_ficha.get("notas", "")
+                    import time, random
+                    send_whatsapp_message(phone_number, "perfecto, déjame revisar las opciones disponibles para ti...")
+                    time.sleep(random.uniform(1.2, 2.2))
                     # Buscar propiedades en EasyBroker usando tipo, presupuesto y características
                     try:
                         eb_props = easybroker_search(
@@ -2419,6 +2458,12 @@ def receive_message():
         else:
             return "OK", 200
 
+        # Pausa de lectura — simula que María leyó el mensaje antes de responder
+        import time, random
+        words_in = len(user_message.split())
+        read_pause = min(0.3 + words_in * 0.04, 1.8) + random.uniform(0, 0.4)
+        time.sleep(read_pause)
+
         history = history_get(phone_number)
         is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
@@ -2598,7 +2643,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
             # --- Step 3: send the plain text (only if no CONFIRMAR_FICHA) ---
             if text_part:
-                send_whatsapp_message(phone_number, text_part)
+                _send_humanized(phone_number, text_part)
                 low = text_part.lower()
                 if "ya te encuentras en mérida" in low or "de dónde te mudas" in low or "ya vives en mérida" in low:
                     waiting_for_ciudad.add(phone_number)
