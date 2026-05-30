@@ -2569,9 +2569,10 @@ def receive_message():
                         chatwoot_update_contact_name(phone_number, full)
                         _send_paso2(phone_number, words[0].capitalize(), user_message)
                         return "OK", 200
-                else:
+                elif not es_pregunta:
                     # Mensaje largo — entidades ya extraídas en PASO 0; dejar que GPT continúe
                     waiting_for_name.discard(phone_number)
+                # Si es_pregunta=True no descartamos — el flag sigue activo para el siguiente mensaje
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -2846,7 +2847,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         # Sincronizar respuesta de María como nota privada (visible en Chatwoot, no llega al cliente)
         chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
 
-        if is_first_message and not client_data.get(phone_number, {}).get("nombre_completo"):
+        if not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 8:
             waiting_for_name.add(phone_number)
 
         last_maria_message_time[phone_number] = datetime.now()
