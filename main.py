@@ -2356,6 +2356,10 @@ def receive_message():
                         hoy = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y")
                         leads = []
                         for ph in phones_set:
+                            # Solo leads con ficha confirmada (equivalente a cliente-potencial)
+                            ficha = _redis.get(f"ficha:{ph}") or ""
+                            if not ficha:
+                                continue
                             raw = _redis.get(f"cdata:{ph}")
                             if not raw:
                                 continue
@@ -2364,15 +2368,13 @@ def receive_message():
                             if not nombre:
                                 continue
                             correo = datos.get("correo", "—")
-                            ficha = _redis.get(f"ficha:{ph}") or ""
                             origen = "—"
                             notas = "—"
-                            if ficha:
-                                for line in ficha.splitlines():
-                                    if line.startswith("Origen:"):
-                                        origen = line.replace("Origen:", "").strip()
-                                    if line.startswith("Notas:"):
-                                        notas = line.replace("Notas:", "").strip()
+                            for line in ficha.splitlines():
+                                if line.startswith("Origen:"):
+                                    origen = line.replace("Origen:", "").strip()
+                                if line.startswith("Notas:"):
+                                    notas = line.replace("Notas:", "").strip()
                             leads.append({"name": nombre, "phone": f"+{ph}",
                                           "email": correo, "origen": origen, "notas": notas})
                         if not leads:
