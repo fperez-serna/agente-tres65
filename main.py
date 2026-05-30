@@ -193,6 +193,11 @@ def send_leads_report(extra_phone=None):
     import threading
 
     def _run():
+        try:
+            send_whatsapp_message(extra_phone, "reporte: thread iniciado, consultando Chatwoot...")
+        except Exception as _te:
+            print(f"[Reporte] No pude mandar mensaje de inicio: {_te}")
+
         token  = os.environ.get("CHATWOOT_TOKEN")
         phones = list({p.strip() for p in [
             os.environ.get("REPORTE_PHONE_1", ""),
@@ -202,10 +207,13 @@ def send_leads_report(extra_phone=None):
 
         def _notify(msg):
             for p in phones:
-                send_whatsapp_message(p, msg)
+                try:
+                    send_whatsapp_message(p, msg)
+                except Exception as _ne:
+                    print(f"[Reporte] _notify falló para {p}: {_ne}")
 
         if not token:
-            _notify("error: CHATWOOT_TOKEN no configurado")
+            _notify("reporte error: CHATWOOT_TOKEN no configurado en Railway")
             return
         if not phones:
             print("[Reporte] Sin números destino — omitido")
