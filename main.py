@@ -188,13 +188,14 @@ def delete_spam_conversations():
         print(f"[Limpieza] Error borrando spam: {e}")
 
 
-def send_leads_report():
+def send_leads_report(extra_phone=None):
     """Genera y manda por WhatsApp solo los leads nuevos con label cliente-potencial."""
     token  = os.environ.get("CHATWOOT_TOKEN")
-    phones = [p.strip() for p in [
+    phones = list({p.strip() for p in [
         os.environ.get("REPORTE_PHONE_1", ""),
         os.environ.get("REPORTE_PHONE_2", ""),
-    ] if p.strip()]
+        extra_phone or "",
+    ] if p.strip()})
     if not token or not phones:
         print("[Reporte] Sin token o sin números destino — omitido")
         return
@@ -2320,7 +2321,10 @@ def receive_message():
 
             if user_message.strip().lower() == "reporte365":
                 send_whatsapp_message(phone_number, "generando reporte, un momento...")
-                send_leads_report()
+                try:
+                    send_leads_report(extra_phone=phone_number)
+                except Exception as _e:
+                    send_whatsapp_message(phone_number, f"error generando reporte: {_e}")
                 return "OK", 200
 
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
