@@ -1891,6 +1891,8 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def receive_message():
     data = request.json
+    lock_acquired = False
+    lock_key = ""
 
     try:
         entry = data["entry"][0]["changes"][0]["value"]
