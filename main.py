@@ -1123,11 +1123,19 @@ def _regex_classify(text: str):
         "muñequita", "mamita", "mamacita", "mami", "baby", "bebe",
         "bebé", "chula", "chiquita", "amor",
     ]
+    romantic_fuzzy = [
+        r"ma+mi+(ta)?", r"ma+ma+(ci)?ta", r"be+be+(ci)?ta?", r"chu+la+",
+        r"gu+a+pa+", r"bo+ni+ta+", r"li+n+da+", r"he+rm+o+sa+",
+        r"so+lt+er+a", r"est+a+s? sol+",
+    ]
     for p in romantic_patterns:
         if re.search(p, t):
             return "ROMANTIC"
     for w in romantic_words:
         if w in t:
+            return "ROMANTIC"
+    for p in romantic_fuzzy:
+        if re.search(p, t):
             return "ROMANTIC"
 
     personal_patterns = [
@@ -1233,7 +1241,7 @@ def _add_offtopic_note(phone_number, category):
     """Nota privada en Chatwoot visible solo para agentes."""
     notes = {
         "ROMANTIC":          "💛 Este cliente está siendo romántico con el bot. María ya redirigió la conversación. Si persiste, ignorar.",
-        "PERSONAL_QUESTION": "💬 Este cliente hizo preguntas personales al bot (edad, nombre real, etc.). María ya redirigió. Posible lead — mantener en flujo.",
+        "PERSONAL_QUESTION": "🚫 Este cliente hizo insinuaciones o preguntas personales al bot. María ya redirigió. Lead descartado.",
     }
     note = notes.get(category)
     if note:
@@ -2129,11 +2137,10 @@ def receive_message():
 
             if category == "PERSONAL_QUESTION":
                 send_whatsapp_message(phone_number,
-                    "Soy María, asistente virtual de TRES65 Inmobiliaria 🏠 "
-                    "No tengo datos personales, pero sí mucho conocimiento sobre propiedades en Mérida. "
-                    "¿Estás buscando comprar, rentar o invertir?")
+                    "Soy un asistente virtual y detecto que tus mensajes no tienen relación con el tema inmobiliario. "
+                    "Voy a finalizar esta conversación. Si en algún momento quieres buscar una propiedad, con gusto te ayudo.")
                 _add_offtopic_note(phone_number, "PERSONAL_QUESTION")
-                # No return — continúa el flujo normal por si quiere seguir
+                return "OK", 200
 
             # Detectar propiedad específica en primer mensaje
             is_first_message = not history_exists(phone_number)
