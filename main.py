@@ -818,6 +818,36 @@ STOPWORDS = {"y", "e", "o", "a", "en", "de", "del", "la", "el", "los", "las", "q
              "me", "mi", "mis", "se", "su", "sus", "un", "una", "por", "para", "con",
              "no", "sé", "se", "al", "porque", "pero", "también", "tambien", "muy"}
 
+# Palabras que NO son nombres propios — usadas para filtrar el fast-path de captura de nombre
+NAME_BLACKLIST = frozenset([
+    # Estados de México
+    "aguascalientes", "bajacalifornia", "campeche", "chiapas", "chihuahua",
+    "coahuila", "colima", "durango", "guanajuato", "guerrero", "hidalgo",
+    "jalisco", "michoacan", "morelos", "nayarit", "oaxaca", "puebla",
+    "queretaro", "quintanaroo", "sinaloa", "sonora", "tabasco",
+    "tamaulipas", "tlaxcala", "veracruz", "yucatan", "zacatecas",
+    "nuevo", "leon", "baja", "california", "potosi",
+    # Ciudades principales de México
+    "merida", "monterrey", "guadalajara", "tijuana", "cancun",
+    "playa", "carmen", "vallarta", "mazatlan", "hermosillo",
+    "culiacan", "saltillo", "torreon", "celaya", "morelia",
+    "toluca", "pachuca", "tuxtla", "villahermosa", "chetumal",
+    "tepic", "xalapa", "acapulco", "veracruz", "puebla",
+    "oaxaca", "chihuahua", "tampico", "leon",
+    # Países y gentilicios comunes
+    "mexico", "estados", "unidos", "usa", "canada", "colombia",
+    "venezuela", "argentina", "chile", "peru", "brasil",
+    "espana", "cuba", "panama", "guatemala", "hondura",
+    "mexicano", "mexicana", "americana", "americano",
+    # Palabras comunes que no son nombres
+    "soy", "me", "llamo", "llama", "nombre", "es", "hola",
+    "buenas", "tardes", "noches", "dias", "bien", "mal", "regular",
+    "del", "estado", "ciudad", "norte", "sur", "este", "oeste",
+    "aqui", "alla", "gracias", "mucho", "gusto", "saludos",
+    "desde", "vivo", "vengo", "vive", "llego", "vienen",
+    "actualmente", "originario", "originaria", "natal",
+])
+
 def detect_property(text):
     """Detecta si el mensaje menciona una propiedad configurada. Retorna la clave o None."""
     low = text.lower()
@@ -1285,6 +1315,32 @@ def _openai_classify(text: str) -> str:
     except Exception as e:
         print(f"[Classify] OpenAI error: {e}")
         return "NORMAL"
+
+
+def _gpt_extract_name(text: str):
+    """Micro-llamada a GPT para extraer el nombre propio de quien escribe.
+    Retorna el nombre en formato Título, o None si no hay nombre en el mensaje."""
+    try:
+        resp = openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": (
+                    "Del siguiente mensaje extrae SOLO el nombre propio de la persona que escribe "
+                    "(nombre y apellido si los hay), en formato Título. "
+                    "Si no hay nombre de persona en el mensaje, responde NULL."
+                )},
+                {"role": "user", "content": text},
+            ],
+            max_tokens=15,
+            temperature=0,
+        )
+        result = resp.choices[0].message.content.strip()
+        if result.upper() == "NULL" or not result:
+            return None
+        return result
+    except Exception as e:
+        print(f"[ExtractName] GPT error: {e}")
+        return None
 
 
 def classify_message(text: str) -> dict:
@@ -2546,7 +2602,6 @@ def receive_message():
 
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
-                # Si es una pregunta, dejar que GPT responda y luego vuelva a pedir nombre
                 es_pregunta = "?" in user_message or any(k in user_message.lower() for k in [
                     "renta", "venta", "precio", "costo", "cuánto", "cuanto", "cuartos",
                     "recámara", "recamara", "baño", "bano", "alberca", "jardín", "jardin",
@@ -2554,33 +2609,39 @@ def receive_message():
                     "estacionamiento", "cochera", "info", "información", "informacion"
                 ])
                 if es_pregunta:
-                    # GPT responde la pregunta — el waiting_for_name sigue activo
-                    pass
-                words = [w for w in user_message.strip().split() if w.replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").isalpha()]
-                # Solo tratar como nombre si no es pregunta y el mensaje es corto (máximo 4 palabras)
-                if not es_pregunta and len(user_message.strip().split()) <= 4 and len(words) >= 1:
-                    waiting_for_name.discard(phone_number)
-                    if len(words) == 1:
-                        primer = words[0].capitalize()
-                        client_data.setdefault(phone_number, {})["nombre_completo"] = primer
-                        save_nombre_redis(phone_number, primer)
-                        client_data_save(phone_number)
-                        chatwoot_update_contact_name(phone_number, primer)
-                        waiting_for_apellido.add(phone_number)
-                        send_whatsapp_message(phone_number, "y tu apellido?")
-                        return "OK", 200
+                    pass  # GPT responde la pregunta — flag sigue activo
+                elif len(user_message.strip().split()) <= 7:
+                    # Paso 1: palabras alfabéticas sin puntuación
+                    raw_parts = [w.strip(".,!?¿¡\"'") for w in user_message.strip().split()]
+                    alpha_parts = [w for w in raw_parts if w and _normalize_text(w).isalpha()]
+                    # Paso 2: filtrar blacklist (estados, ciudades, palabras comunes)
+                    name_candidates = [w for w in alpha_parts if _normalize_text(w) not in NAME_BLACKLIST]
+                    # Paso 3: preferir palabras que estaban capitalizadas en el original
+                    caps = [w for w in name_candidates if w[0].isupper()]
+                    if caps:
+                        candidate = " ".join(caps[:3]).title()
                     else:
-                        full = " ".join(words[:3]).title()  # máximo 3 palabras como nombre
-                        client_data.setdefault(phone_number, {})["nombre_completo"] = full
-                        save_nombre_redis(phone_number, full)
+                        # palabras no capitalizadas o todo filtrado → GPT decide
+                        candidate = _gpt_extract_name(user_message)
+
+                    if candidate:
+                        waiting_for_name.discard(phone_number)
+                        name_parts = candidate.split()
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = candidate
+                        save_nombre_redis(phone_number, candidate)
                         client_data_save(phone_number)
-                        chatwoot_update_contact_name(phone_number, full)
-                        _send_paso2(phone_number, words[0].capitalize(), user_message)
+                        chatwoot_update_contact_name(phone_number, candidate)
+                        if len(name_parts) == 1:
+                            waiting_for_apellido.add(phone_number)
+                            send_whatsapp_message(phone_number, "y tu apellido?")
+                        else:
+                            _send_paso2(phone_number, name_parts[0], user_message)
                         return "OK", 200
-                elif not es_pregunta:
-                    # Mensaje largo — entidades ya extraídas en PASO 0; dejar que GPT continúe
+                    # GPT no encontró nombre → flag sigue activo, GPT lo pide en siguiente turno
+                else:
+                    # Mensaje largo — entidades extraídas en PASO 0, GPT continúa
                     waiting_for_name.discard(phone_number)
-                # Si es_pregunta=True no descartamos — el flag sigue activo para el siguiente mensaje
+                # Si es_pregunta o no hay candidate: flag sigue activo
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
@@ -2624,15 +2685,15 @@ def receive_message():
         else:
             return "OK", 200
 
-        # Pausa de lectura — simula que María leyó el mensaje antes de responder
+        # Pausa de lectura — mínimo 10s, crece con el largo del mensaje
         import time, random
         words_in = len(user_message.split())
         _hist_check = history_get(phone_number)
         if len(_hist_check) == 0:
-            # Primer mensaje: pausa más larga para parecer que el bot "procesa" la nueva conversación
-            read_pause = random.uniform(8, 20)
+            read_pause = random.uniform(12, 25)   # primer mensaje: 12-25s
         else:
-            read_pause = min(0.3 + words_in * 0.04, 2.5) + random.uniform(0.3, 1.0)
+            base = 10 + words_in * 0.3            # 10s base + ~0.3s por palabra
+            read_pause = min(base, 25) + random.uniform(0, 4)  # máx ~29s con jitter
         time.sleep(read_pause)
 
         history = history_get(phone_number)
