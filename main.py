@@ -126,6 +126,8 @@ def check_and_send_24h_followups():
                 continue
             if _redis.exists(f"template_sent:{phone}"):
                 continue
+            if _redis.exists(f"agent_active:{phone}"):
+                continue
             last_raw = _redis.get(f"last_activity:{phone}")
             if not last_raw:
                 continue
@@ -193,10 +195,7 @@ def send_leads_report(extra_phone=None):
     import threading
 
     def _run():
-        try:
-            send_whatsapp_message(extra_phone, "reporte: thread iniciado, consultando Chatwoot...")
-        except Exception as _te:
-            print(f"[Reporte] No pude mandar mensaje de inicio: {_te}")
+        print("[Reporte] Iniciando consulta a Chatwoot...")
 
         token  = os.environ.get("CHATWOOT_TOKEN")
         phones = list({p.strip() for p in [
@@ -1493,13 +1492,17 @@ def reset_conversation(phone_number):
     ficha_confirmada.discard(phone_number)
     algo_mas_mode.discard(phone_number)
     cancel_followup(phone_number)
+    try:
+        scheduler.remove_job(f"ficha_autoconfirm_{phone_number}")
+    except Exception:
+        pass
     # Redis
     if _redis:
         for key in [f"nombre:{phone_number}", f"cdata:{phone_number}",
                     f"ficha:{phone_number}", f"last_activity:{phone_number}",
                     f"cw_conv:{phone_number}", f"agent_active:{phone_number}",
                     f"template_sent:{phone_number}", f"followup_{phone_number}",
-                    f"pending_decision:{phone_number}"]:
+                    f"pending_decision:{phone_number}", f"ficha_pendiente:{phone_number}"]:
             _redis.delete(key)
 
 
@@ -1779,6 +1782,10 @@ def schedule_followup(phone_number):
 
 def auto_confirm_ficha(phone_number):
     """Si la ficha lleva 2h sin que el cliente la confirme, la confirmamos automáticamente."""
+    if _redis:
+        lock_ok = _redis.set(f"autoconfirm_lock:{phone_number}", "1", nx=True, ex=120)
+        if not lock_ok:
+            return  # otro job ya está ejecutando esto
     if phone_number in ficha_confirmada:
         return  # ya fue confirmada manualmente
     if _redis and not _redis.exists(f"ficha_pendiente:{phone_number}"):
@@ -1910,7 +1917,7 @@ def receive_message():
             if _redis.exists(f"msg_seen:{msg_id}"):
                 print(f"[{phone_number}] Mensaje duplicado ignorado: {msg_id}")
                 return "OK", 200
-            _redis.setex(f"msg_seen:{msg_id}", 3600, "1")
+            _redis.setex(f"msg_seen:{msg_id}", 86400, "1")  # 24h — Meta reintenta hasta 24h
 
         # ── Comando unspam365: desbloquea número antes del check de spam ──
         _raw_body = message.get("text", {}).get("body", "").strip().lower()
@@ -2007,7 +2014,7 @@ def receive_message():
                                     if source_url:
                                         ad_note_lines.append(f"• URL: {source_url}")
                                     ad_note_lines.append("• Meta envió sus plantillas automáticas de bienvenida al cliente.")
-                                    chatwoot_sync_message(phone_number, "\n".join(ad_note_lines), "incoming", private=True)
+                                    chatwoot_sync_message(phone_number, "\n".join(ad_note_lines), "outgoing", private=True)
                     except Exception as e:
                         print(f"Chatwoot origen error: {e}")
 
@@ -2167,6 +2174,7 @@ def receive_message():
                     client_data_save(phone_number)
                     history = history_get(phone_number)
                     history.append({"role": "user", "content": button_title})
+                    history.append({"role": "assistant", "content": "para vivir, perfecto. cuánto tienes en mente de presupuesto?"})
                     advance_flow(phone_number)
                     history_set(phone_number, history[-20:])
                     return "OK", 200
