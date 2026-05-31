@@ -1535,34 +1535,38 @@ def _add_offtopic_note(phone_number, category):
 def chatwoot_sync_message(phone_number, text, message_type="incoming", private=False):
     """Sincroniza un mensaje a Chatwoot para monitoreo."""
     if not os.environ.get("CHATWOOT_TOKEN"):
-        print("[Chatwoot] Sin token — sync omitido")
         return
+    # Chatwoot tiene límite práctico ~10k chars; truncar para no perder el mensaje
+    if text and len(text) > 8000:
+        text = text[:7900] + "\n[…mensaje truncado]"
     try:
         datos   = client_data_load(phone_number)
         c_id    = chatwoot_get_or_create_contact(phone_number, datos)
-        print(f"[Chatwoot] contact_id={c_id}")
         if not c_id:
+            print(f"[Chatwoot] No se pudo obtener contact para {phone_number}")
             return
         conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
-        print(f"[Chatwoot] conv_id={conv_id}")
         if not conv_id:
+            print(f"[Chatwoot] No se pudo obtener conv para {phone_number}")
             return
-        base = chatwoot_base()
+        base    = chatwoot_base()
+        payload = {"content": text, "message_type": message_type, "private": private}
         r = requests.post(f"{base}/conversations/{conv_id}/messages",
-                          json={"content": text, "message_type": message_type, "private": private},
-                          headers=_chatwoot_headers(), timeout=5)
-        # Si la conversación fue borrada en Chatwoot, limpiar caché y crear nueva
-        if r.status_code in (404, 422):
-            if _redis:
-                _redis.delete(f"cw_conv:{phone_number}")
-            conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
-            print(f"[Chatwoot] conv_id recuperado={conv_id}")
-            if conv_id:
-                requests.post(f"{base}/conversations/{conv_id}/messages",
-                              json={"content": text, "message_type": message_type, "private": private},
-                              headers=_chatwoot_headers(), timeout=5)
+                          json=payload, headers=_chatwoot_headers(), timeout=10)
+        if not r.ok:
+            print(f"[Chatwoot] sync error {r.status_code}: {r.text[:200]}")
+            # Reintento: si la conversación ya no existe, crear una nueva
+            if r.status_code in (404, 422, 400):
+                if _redis:
+                    _redis.delete(f"cw_conv:{phone_number}")
+                conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+                if conv_id:
+                    r2 = requests.post(f"{base}/conversations/{conv_id}/messages",
+                                       json=payload, headers=_chatwoot_headers(), timeout=10)
+                    if not r2.ok:
+                        print(f"[Chatwoot] reintento fallido {r2.status_code}: {r2.text[:200]}")
     except Exception as e:
-        print(f"Chatwoot sync error: {e}")
+        print(f"[Chatwoot] sync exception: {e}")
 
 def chatwoot_get_or_create_team(team_name):
     """Busca un equipo por nombre o lo crea si no existe. Retorna el team_id."""
