@@ -312,14 +312,43 @@ CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
 # Propiedades configuradas por anuncio
 PROPERTIES = {
     "santa ana": {
-        "saludo": "Hola! Santa Ana es de las colonias más cotizadas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
-        "contexto": "La casa en Santa Ana es una joya del centro de Mérida.",
+        "saludo": "Hola! Vi que te interesó la casa en Santa Ana, una de las zonas más bonitas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
         "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845",
+        "contexto": """Casa en venta — Centro de Mérida (Santa Ana / Las Águilas)
+ID: EB-QT5031 | Clave: AV-0461
+
+PRECIO: $5,500,000 MXN (aprox. 5 a 6 millones)
+Formas de pago: crédito bancario o recursos propios.
+Apartado: $20,000 MXN | Enganche: 20% | Entrega inmediata.
+
+DISTRIBUCIÓN:
+- 2 recámaras, 2 baños completos, 1 medio baño
+- Construcción: 195 m² | Terreno: 5.8 m x 30 m
+- Piscina: 4 m x 2.5 m
+- Jardín: más de 40 m² con plantas y palmeras
+
+Planta baja: sala, cocina integral con isla y mesa comedor, comedor, sala de estar, medio baño, terraza, jardín, piscina, recámara #1 con baño completo.
+Planta alta: recámara #2 con baño completo y balcón.
+
+EQUIPAMIENTO INCLUIDO:
+4 aires acondicionados inverter, 5 ventiladores, refrigerador inverter, calentador, asador, microondas, presurizador, almacenamiento de agua, cisterna con bomba, estufa, tanque de gas.
+
+ACABADOS:
+Vidrio templado en baños, vigas de cedro, techos de cedro, piso de pasta y mármol, puertas originales de cedro, cocina integral, closets amplios.
+
+NOTA: No incluye muebles ni artículos decorativos (imágenes son ilustrativas).
+El precio no incluye impuestos, avalúo ni gastos notariales.
+
+UBICACIÓN: A 6 cuadras del centro de Mérida, 2 cuadras de la Ermita.
+La dirección exacta y pin de ubicación se comparten después de una llamada con un asesor — esto nos permite asegurarnos de que la propiedad es la indicada para lo que buscas y darte una mejor experiencia.
+
+REGLA IMPORTANTE PARA MARÍA: Si alguien pregunta la dirección exacta, el pin, cómo llegar o cualquier dato de ubicación concreta, responde exactamente así (adaptando el tono): "La ubicación exacta la compartimos después de una breve llamada con un asesor — así nos aseguramos de que esta propiedad es la indicada para ti y te damos una experiencia mucho más personalizada. ¿Te agendamos una llamada rápida?"
+""",
         "datos": {
-            "tipo": "comprar",
+            "tipo": "Comprar",
             "intencion": "Para vivir",
             "presupuesto": "5 a 6 millones",
-            "notas": "Interesado en casa Santa Ana — venta amueblada $5.5M"
+            "notas": "Interesado en casa Santa Ana, centro de Mérida — 2 rec, 2 baños, piscina, 195 m², $5.5M"
         }
     },
 }
@@ -2348,9 +2377,14 @@ def receive_message():
                 prop = PROPERTIES[prop_key]
                 referral_early = message.get("referral", {})
                 ad_image_url = referral_early.get("image_url", "")
-                # Guardar referencia a la propiedad del anuncio
-                ad_context[phone_number] = {"origen": "anuncio", "property_key": prop_key,
-                                            "texto": prop_key, "source_id": "", "source_url": prop.get("url", "")}
+                # Guardar referencia a la propiedad del anuncio (con ficha completa para GPT)
+                ad_context[phone_number] = {
+                    "origen": "anuncio",
+                    "property_key": prop_key,
+                    "texto": prop.get("contexto", prop_key),
+                    "source_id": "",
+                    "source_url": prop.get("url", ""),
+                }
                 # Pre-poblar datos conocidos de la propiedad
                 if prop.get("datos"):
                     client_data.setdefault(phone_number, {}).update(prop["datos"])
@@ -2773,7 +2807,15 @@ DATOS OBLIGATORIOS en modo exploratorio:
 Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         ctx = ad_context.get(phone_number, {})
         if isinstance(ctx, dict) and ctx.get("texto"):
-            system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ctx['texto']}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
+            prop_key_ctx = ctx.get("property_key", "")
+            if prop_key_ctx and prop_key_ctx in PROPERTIES and PROPERTIES[prop_key_ctx].get("contexto"):
+                system += (
+                    f"\n\nFICHA TÉCNICA DE LA PROPIEDAD QUE VIO EL CLIENTE:\n{ctx['texto']}\n"
+                    "Usa estos datos para responder cualquier pregunta sobre la propiedad con precisión. "
+                    "Si preguntan dirección, pin o cómo llegar, sigue la REGLA IMPORTANTE indicada en la ficha."
+                )
+            else:
+                system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ctx['texto']}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
         elif isinstance(ctx, str) and ctx:
             system += f"\n\nCONTEXTO DEL ANUNCIO POR EL QUE LLEGÓ ESTE LEAD:\n{ctx}\nUsa este contexto para personalizar tu primer mensaje — menciona algo relacionado al anuncio de forma natural, sin copiar el texto exacto."
 
