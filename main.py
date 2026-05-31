@@ -1124,7 +1124,14 @@ def advance_flow(phone_number):
 
 
 def _send_paso2(phone_number, primer_nombre, user_message_for_history):
-    texto = f"Mucho gusto {primer_nombre}, y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo. Voy a hacerte unas preguntas para crear tu ficha, nos va a tomar un minuto. Es rápido."
+    import time, random
+    ctx = ad_context.get(phone_number, {})
+    prop_key = ctx.get("property_key") if isinstance(ctx, dict) else None
+    if prop_key and prop_key in PROPERTIES:
+        # Viene de una propiedad específica — saludo más relevante
+        texto = f"Mucho gusto {primer_nombre}. Para conectarte con el mejor asesor para esta propiedad, necesito hacerte unas preguntas rápidas."
+    else:
+        texto = f"Mucho gusto {primer_nombre}, y ahora sí que emocionante estar en esta búsqueda inmobiliaria contigo. Voy a hacerte unas preguntas para crear tu ficha, nos va a tomar un minuto. Es rápido."
     send_whatsapp_message(phone_number, texto)
 
     datos = client_data.get(phone_number, {})
@@ -1133,9 +1140,37 @@ def _send_paso2(phone_number, primer_nombre, user_message_for_history):
     boton_enviado = advance_flow(phone_number)
 
     if not boton_enviado:
-        # Ya tenemos entidades básicas — pedir lo siguiente via GPT
-        # Agregar solo el mensaje al historial y dejar que el siguiente mensaje del cliente active GPT
-        print(f"[{phone_number}] _send_paso2: entidades completas, GPT seguirá en próximo mensaje")
+        # Todas las entidades de botones ya están — GPT pregunta ciudad o correo directamente
+        import openai as _oai
+        system_cont = SYSTEM_PROMPT
+        system_cont += f"\n\nTELÉFONO DEL CLIENTE: +{phone_number}"
+        if prop_key and prop_key in PROPERTIES and PROPERTIES[prop_key].get("contexto"):
+            system_cont += f"\n\nFICHA TÉCNICA DE LA PROPIEDAD:\n{PROPERTIES[prop_key]['contexto']}"
+        system_cont += f"\n\nLO QUE YA SABES:\n- Nombre: {datos.get('nombre_completo','')}\n- Intención: {datos.get('intencion','')}\n- Tipo: {datos.get('tipo','')}\n- Presupuesto: {datos.get('presupuesto','')}"
+        system_cont += "\n\nINSTRUCCIÓN: Acaba de presentarse. Pregunta solo lo siguiente que falte (ciudad si vive fuera, o correo si ya tienes ciudad). Una pregunta corta y natural."
+        hist = history_get(phone_number)
+        hist.append({"role": "user", "content": user_message_for_history})
+        hist.append({"role": "assistant", "content": texto})
+        try:
+            resp = _oai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": system_cont}] + hist[-10:],
+            )
+            followup = resp.choices[0].message.content.strip()
+            all_tokens = ["CONFIRMAR_FICHA", "MANDAR_BOTONES_CONTACTO",
+                          "MANDAR_BOTONES_VIVIR_INVERTIR", "MANDAR_BOTONES_COMPRAR_RENTAR"]
+            for t in all_tokens:
+                followup = followup.replace(t, "").strip()
+            if followup:
+                time.sleep(random.uniform(1.5, 3.0))
+                _send_humanized(phone_number, followup)
+                hist.append({"role": "assistant", "content": followup})
+        except Exception as _e:
+            print(f"[_send_paso2] GPT followup error: {_e}")
+        history_set(phone_number, hist[-20:])
+        update_last_activity(phone_number)
+        schedule_followup(phone_number)
+        return
 
     history = history_get(phone_number)
     history.append({"role": "user", "content": user_message_for_history})
@@ -2436,8 +2471,10 @@ def receive_message():
                     client_data.setdefault(phone_number, {}).update(prop["datos"])
                     client_data_save(phone_number)
                 print(f"[{phone_number}] Propiedad detectada en mensaje: {prop_key}")
-                if is_first_message:
-                    # Primer mensaje → saludo personalizado de la propiedad
+                # Mensaje corto (solo "hola" o trigger mínimo) → saludo hardcodeado de la propiedad
+                # Mensaje rico (con nombre, preguntas, datos) → GPT maneja con el contexto cargado
+                _es_mensaje_corto = len(user_message.strip().split()) <= 5
+                if is_first_message and _es_mensaje_corto:
                     referral_early = message.get("referral", {})
                     ad_image_url = referral_early.get("image_url", "")
                     msg_unico = prop["saludo"]
@@ -2453,7 +2490,16 @@ def receive_message():
                     waiting_for_name.add(phone_number)
                     schedule_followup(phone_number)
                     return "OK", 200
-                # No es primer mensaje → solo cargó el contexto, GPT continúa normalmente
+                # Mensaje rico o mensaje posterior → intentar extraer nombre y dejar que GPT continúe
+                if not client_data.get(phone_number, {}).get("nombre_completo"):
+                    _nombre_detectado = _gpt_extract_name(user_message)
+                    if _nombre_detectado:
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = _nombre_detectado
+                        save_nombre_redis(phone_number, _nombre_detectado)
+                        client_data_save(phone_number)
+                        chatwoot_update_contact_name(phone_number, _nombre_detectado)
+                        waiting_for_name.discard(phone_number)
+                # Continúa hacia GPT con contexto de propiedad ya cargado
 
             # Detectar formulario de Meta Lead Ad y pre-poblar datos
             if parse_lead_ad_message(phone_number, user_message):
