@@ -314,20 +314,39 @@ PROPERTIES = {
     "santa ana": {
         "saludo": "Hola! Vi que te interesó la casa en Santa Ana, una de las zonas más bonitas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
         "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845",
+        "resumen": (
+            "Casa Santa Ana — Centro de Mérida\n"
+            "226 m² de terreno | 186 m² de construcción\n"
+            "2 recámaras | 2.5 baños\n"
+            "Jardín + terraza techada + piscina privada\n"
+            "Cocina equipada | Comedor para 6\n"
+            "Precio: $5,500,000 MXN\n\n"
+            "Tienes alguna pregunta específica sobre la propiedad?"
+        ),
         "contexto": """Casa en venta — Centro de Mérida (Santa Ana / Las Águilas)
 ID: EB-QT5031 | Clave: AV-0461
 
-PRECIO: $5,500,000 MXN (aprox. 5 a 6 millones)
+RESUMEN PARA COMPARTIR AL CLIENTE (cuando pregunte por más info o quiera saber de qué trata):
+226 m² de terreno | 186 m² de construcción
+2 recámaras | 2.5 baños
+Jardín + terraza techada + piscina privada
+Cocina equipada | Comedor para 6
+Precio: $5,500,000 MXN
+
+REGLA: Cuando el cliente diga que vio una publicidad de esta casa o pida más información, comparte primero el resumen de arriba de forma natural, luego pregunta si tiene alguna duda específica, y después continúa con el flujo normal (nombre, ficha, etc.).
+
+PRECIO: $5,500,000 MXN
 Formas de pago: crédito bancario o recursos propios.
 Apartado: $20,000 MXN | Enganche: 20% | Entrega inmediata.
 
-DISTRIBUCIÓN:
+DISTRIBUCIÓN COMPLETA:
 - 2 recámaras, 2 baños completos, 1 medio baño
-- Construcción: 195 m² | Terreno: 5.8 m x 30 m
-- Piscina: 4 m x 2.5 m
+- Construcción: 186 m² | Terreno: 226 m² (5.8 m x 30 m aprox.)
+- Piscina privada: 4 m x 2.5 m
 - Jardín: más de 40 m² con plantas y palmeras
+- Terraza techada
 
-Planta baja: sala, cocina integral con isla y mesa comedor, comedor, sala de estar, medio baño, terraza, jardín, piscina, recámara #1 con baño completo.
+Planta baja: sala, cocina integral con isla y mesa comedor para 6, comedor, sala de estar, medio baño, terraza, jardín, piscina, recámara #1 con baño completo.
 Planta alta: recámara #2 con baño completo y balcón.
 
 EQUIPAMIENTO INCLUIDO:
@@ -342,7 +361,7 @@ El precio no incluye impuestos, avalúo ni gastos notariales.
 UBICACIÓN: A 6 cuadras del centro de Mérida, 2 cuadras de la Ermita.
 La dirección exacta y pin de ubicación se comparten después de una llamada con un asesor — esto nos permite asegurarnos de que la propiedad es la indicada para lo que buscas y darte una mejor experiencia.
 
-REGLA IMPORTANTE PARA MARÍA: Si alguien pregunta la dirección exacta, el pin, cómo llegar o cualquier dato de ubicación concreta, responde exactamente así (adaptando el tono): "La ubicación exacta la compartimos después de una breve llamada con un asesor — así nos aseguramos de que esta propiedad es la indicada para ti y te damos una experiencia mucho más personalizada. ¿Te agendamos una llamada rápida?"
+REGLA IMPORTANTE: Si alguien pregunta la dirección exacta, el pin, cómo llegar o cualquier dato de ubicación concreta, responde: "La ubicación exacta la compartimos después de una breve llamada con un asesor — así nos aseguramos de que esta propiedad es la indicada para ti y te damos una experiencia mucho más personalizada. ¿Te agendamos una llamada rápida?"
 """,
         "datos": {
             "tipo": "Comprar",
@@ -877,12 +896,22 @@ NAME_BLACKLIST = frozenset([
     "actualmente", "originario", "originaria", "natal",
 ])
 
+PROPERTY_ALIASES = {
+    "santana":     "santa ana",
+    "santa-ana":   "santa ana",
+    "sta ana":     "santa ana",
+    "sta. ana":    "santa ana",
+}
+
 def detect_property(text):
     """Detecta si el mensaje menciona una propiedad configurada. Retorna la clave o None."""
     low = text.lower()
     for key in PROPERTIES:
         if key in low:
             return key
+    for alias, canonical in PROPERTY_ALIASES.items():
+        if alias in low and canonical in PROPERTIES:
+            return canonical
     return None
 
 
@@ -2388,14 +2417,14 @@ def receive_message():
                 _mark_as_spam(phone_number)
                 return "OK", 200
 
-            # Detectar propiedad específica en primer mensaje
+            # Detectar propiedad — en cualquier mensaje si aún no hay contexto de propiedad cargado
             is_first_message = not history_exists(phone_number)
-            prop_key = detect_property(user_message) if is_first_message else None
+            _ctx_actual = ad_context.get(phone_number, {})
+            _sin_propiedad = not isinstance(_ctx_actual, dict) or not _ctx_actual.get("property_key")
+            prop_key = detect_property(user_message) if _sin_propiedad else None
             if prop_key:
                 prop = PROPERTIES[prop_key]
-                referral_early = message.get("referral", {})
-                ad_image_url = referral_early.get("image_url", "")
-                # Guardar referencia a la propiedad del anuncio (con ficha completa para GPT)
+                # Cargar ficha técnica en el contexto (siempre, aunque no sea primer mensaje)
                 ad_context[phone_number] = {
                     "origen": "anuncio",
                     "property_key": prop_key,
@@ -2403,23 +2432,28 @@ def receive_message():
                     "source_id": "",
                     "source_url": prop.get("url", ""),
                 }
-                # Pre-poblar datos conocidos de la propiedad
-                if prop.get("datos"):
+                if prop.get("datos") and not client_data.get(phone_number, {}).get("intencion"):
                     client_data.setdefault(phone_number, {}).update(prop["datos"])
                     client_data_save(phone_number)
-                msg_unico = prop["saludo"]
-                if ad_image_url:
-                    send_whatsapp_image(phone_number, ad_image_url, msg_unico)
-                else:
-                    send_whatsapp_message(phone_number, msg_unico)
-                history = history_get(phone_number)
-                history.append({"role": "user", "content": user_message})
-                history.append({"role": "assistant", "content": msg_unico})
-                history_set(phone_number, history[-20:])
-                update_last_activity(phone_number)
-                waiting_for_name.add(phone_number)
-                schedule_followup(phone_number)
-                return "OK", 200
+                print(f"[{phone_number}] Propiedad detectada en mensaje: {prop_key}")
+                if is_first_message:
+                    # Primer mensaje → saludo personalizado de la propiedad
+                    referral_early = message.get("referral", {})
+                    ad_image_url = referral_early.get("image_url", "")
+                    msg_unico = prop["saludo"]
+                    if ad_image_url:
+                        send_whatsapp_image(phone_number, ad_image_url, msg_unico)
+                    else:
+                        send_whatsapp_message(phone_number, msg_unico)
+                    history = history_get(phone_number)
+                    history.append({"role": "user", "content": user_message})
+                    history.append({"role": "assistant", "content": msg_unico})
+                    history_set(phone_number, history[-20:])
+                    update_last_activity(phone_number)
+                    waiting_for_name.add(phone_number)
+                    schedule_followup(phone_number)
+                    return "OK", 200
+                # No es primer mensaje → solo cargó el contexto, GPT continúa normalmente
 
             # Detectar formulario de Meta Lead Ad y pre-poblar datos
             if parse_lead_ad_message(phone_number, user_message):
