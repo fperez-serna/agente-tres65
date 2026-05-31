@@ -312,7 +312,7 @@ CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
 # Propiedades configuradas por anuncio
 PROPERTIES = {
     "santa ana": {
-        "saludo": "Hola! Vi que te interesó la casa en Santa Ana, una de las zonas más bonitas del centro de Mérida. Con quién tengo el gusto? (nombre completo por favor)",
+        "saludo": "¡Hola! 😊\nSoy María.\nTe escribo de TRES65 Inmobiliaria porque vi que te interesó la propiedad Santa Ana.\n¿Cómo te llamas?",
         "url": "https://www.tres65inmobiliaria.com/property/casa-en-venta-en-merida-centro-8e06cd60-5cd3-4688-a498-b41d3bdad845",
         "resumen": (
             "Casa Santa Ana — Centro de Mérida\n"
@@ -435,7 +435,12 @@ ENTIDADES DE LA FICHA (en orden de prioridad):
   Puedes mencionar las que quieras o agregar algo diferente."
   Guarda todo lo que mencionen como notas. No preguntes sobre zonas — eso lo define el asesor.
 - correo → "para conectarte con el asesor que mejor se adapta a lo que buscas, me compartes tu correo?"
-- ficha → cuando tienes todo, redáctala y agrega CONFIRMAR_FICHA
+- ficha → ANTES de redactarla, revisa el checklist obligatorio:
+  ✅ nombre_completo con apellido (mínimo 2 palabras — si solo tienes nombre, pide el apellido primero)
+  ✅ correo (o confirmación de que no tiene)
+  ✅ ciudad / "Viene de" si busca vivir (si no lo sabes, pregunta "ya estás en Mérida o de dónde te mudas?")
+  ✅ intencion, tipo, presupuesto (ya los tienes si llegaste aquí)
+  Si falta cualquiera de los primeros tres, pídelo ANTES de redactar la ficha. Solo cuando los tengas todos, redáctala y agrega CONFIRMAR_FICHA.
 - contacto → ÚNICAMENTE después de que el cliente confirme la ficha, agrega MANDAR_BOTONES_CONTACTO
 
 REGLA CRÍTICA: Si el cliente ya mencionó un dato — en cualquier parte del historial,
@@ -2832,6 +2837,23 @@ def receive_message():
         is_first_message = len(history) == 0
         history.append({"role": "user", "content": user_message})
 
+        # Saludos hardcodeados para primer mensaje simple (≤5 palabras) sin propiedad específica detectada
+        _ctx_sal = ad_context.get(phone_number, {})
+        _prop_sal = _ctx_sal.get("property_key") if isinstance(_ctx_sal, dict) else None
+        if is_first_message and not _prop_sal and len(user_message.strip().split()) <= 5:
+            _es_anuncio = isinstance(_ctx_sal, dict) and _ctx_sal.get("origen") == "anuncio"
+            if _es_anuncio:
+                saludo_txt = "¡Hola! 😊\nSoy María.\nTe escribo de TRES65 Inmobiliaria porque vi que te interesó nuestra publicación.\n¿Cómo te llamas?"
+            else:
+                saludo_txt = "¡Hola! 😊\n\nQué gusto saludarte.\n\nSoy María de TRES65 Inmobiliaria.\n\n¿Con quién tengo el gusto?"
+            send_whatsapp_message(phone_number, saludo_txt)
+            history.append({"role": "assistant", "content": saludo_txt})
+            history_set(phone_number, history[-20:])
+            update_last_activity(phone_number)
+            waiting_for_name.add(phone_number)
+            schedule_followup(phone_number)
+            return "OK", 200
+
         from datetime import timezone, timedelta
         merida_tz = timezone(timedelta(hours=-6))
         hora_actual = datetime.now(merida_tz).hour
@@ -2862,10 +2884,17 @@ def receive_message():
 
         if is_first_message:
             if datos_frescos.get("intencion") or datos_frescos.get("tipo") or datos_frescos.get("ciudad"):
-                # El primer mensaje ya tiene info útil — saluda, confirma lo que entendiste y pide nombre/apellido
-                system += "\n\nINSTRUCCIÓN: Es el primer mensaje y el cliente ya compartió información. Saluda como María de TRES65, confirma con calidez lo que entendiste de su mensaje (intención, tipo de propiedad, ciudad si aplica) y pide su nombre completo. No hagas más preguntas."
+                system += (
+                    "\n\nINSTRUCCIÓN: Es el primer mensaje y el cliente ya compartió información. "
+                    "Preséntate exactamente así: '¡Hola! 😊 Soy María de TRES65 Inmobiliaria.' "
+                    "Luego confirma con calidez lo que entendiste (intención, tipo de propiedad, ciudad si aplica) "
+                    "y pide su nombre completo. No hagas más preguntas."
+                )
             else:
-                system += "\n\nINSTRUCCIÓN INMEDIATA: Primer mensaje sin datos. Saluda con calidez, preséntate como María de TRES65 y pide el nombre completo. NADA MÁS."
+                system += (
+                    "\n\nINSTRUCCIÓN INMEDIATA: Primer mensaje rico (el cliente ya dio contexto pero no llega por link simple). "
+                    "Preséntate como '¡Hola! 😊 Soy María de TRES65 Inmobiliaria.' y pide el nombre completo. NADA MÁS."
+                )
         elif not datos_frescos.get("nombre_completo") and len(history) <= 4:
             system += "\n\nINSTRUCCIÓN: El cliente se presentó. Confirma con calidez lo que entendiste y pide solo el apellido. No hagas más preguntas."
 
