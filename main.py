@@ -2088,6 +2088,22 @@ def receive_message():
                                     team_id = chatwoot_get_or_create_team(team_name)
                                     if team_id:
                                         chatwoot_assign_team(conv_orig, team_id)
+                                    # Detectar si el anuncio es de una propiedad configurada
+                                    ref_text = f"{referral.get('headline','')} {referral.get('body','')}"
+                                    prop_from_ref = detect_property(ref_text)
+                                    if prop_from_ref and phone_number not in ad_context:
+                                        prop_ref = PROPERTIES[prop_from_ref]
+                                        ad_context[phone_number] = {
+                                            "texto": prop_ref.get("contexto", prop_from_ref),
+                                            "source_id": referral.get("source_id", ""),
+                                            "source_url": prop_ref.get("url", referral.get("source_url", "")),
+                                            "origen": "anuncio",
+                                            "property_key": prop_from_ref,
+                                        }
+                                        if prop_ref.get("datos"):
+                                            client_data.setdefault(phone_number, {}).update(prop_ref["datos"])
+                                            client_data_save(phone_number)
+                                        print(f"[{phone_number}] Propiedad detectada desde anuncio Meta: {prop_from_ref}")
                                     # Nota privada con contexto del anuncio
                                     source_url = referral.get("source_url", "")
                                     ad_note_lines = [
@@ -2098,6 +2114,8 @@ def receive_message():
                                         ad_note_lines.append(f"• Descripción: {referral['body']}")
                                     if source_url:
                                         ad_note_lines.append(f"• URL: {source_url}")
+                                    if prop_from_ref:
+                                        ad_note_lines.append(f"• 🏠 Propiedad: *{prop_from_ref.title()}* — ficha técnica cargada en bot")
                                     ad_note_lines.append("• Meta envió sus plantillas automáticas de bienvenida al cliente.")
                                     chatwoot_sync_message(phone_number, "\n".join(ad_note_lines), "outgoing", private=True)
                     except Exception as e:
