@@ -2947,6 +2947,18 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 conocido.append(f"- Conoce Mérida: {datos['conoce_merida']} (NO vuelvas a preguntar esto)")
             system += "\n\nLO QUE YA SABES DE ESTE CLIENTE:\n" + "\n".join(conocido)
 
+        # Propiedad específica — no preguntar características generales
+        _ctx_prop = ad_context.get(phone_number, {})
+        if isinstance(_ctx_prop, dict) and _ctx_prop.get("property_key"):
+            system += (
+                "\n\nREGLA PROPIEDAD ESPECÍFICA: Este cliente llegó interesado en una propiedad concreta que ya conoces. "
+                "NO preguntes qué características busca (alberca, jardín, recámaras, pet friendly, etc.) — "
+                "esa pregunta es para búsquedas abiertas donde no sabemos qué quieren. "
+                "Aquí ya tienes la propiedad. El flujo es: nombre → ciudad (solo si busca vivir fuera de Mérida) → correo → ficha → contacto con asesor. "
+                "Si el cliente pregunta algo sobre la propiedad, respóndelo con la ficha técnica que tienes. "
+                "Si la propiedad no es lo que buscan, entonces sí puedes preguntar qué buscan exactamente."
+            )
+
         # Flujo de inversión — nunca preguntar ciudad ni vivir/invertir
         if datos.get("intencion") == "Para invertir":
             system += "\n\nREGLA INVERSIÓN ABSOLUTA: Este cliente es de INVERSIÓN. NUNCA preguntes 'ya vives en Mérida', 'de dónde te mudas', ni nada sobre dónde vive. No es relevante. NUNCA preguntes vivir/invertir ni comprar/rentar — ya lo sabes."
