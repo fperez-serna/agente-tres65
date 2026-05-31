@@ -402,12 +402,9 @@ CÓMO ESCRIBES:
   antes de continuar. Nunca ignores lo que dijeron para ir directo a la siguiente pregunta.
 
 PRIMER MENSAJE:
-Saluda según horario, preséntate, pide nombre completo. Sin emojis.
-- Antes de 12pm: "Buenos días, que gusto saludarte"
-- 12pm-7pm: "Buenas tardes, que gusto saludarte"
-- Después de 7pm: "Buenas noches, que gusto saludarte"
-Ejemplo: "Buenas tardes, que gusto saludarte. Soy María de TRES65 Inmobiliaria,
-con quién tengo el gusto? (nombre completo por favor)"
+El saludo ya fue enviado por el sistema antes de que respondas — NO vuelvas a saludar
+ni a presentarte. El cliente ya sabe quién eres. Empieza directamente desde donde quedó
+la conversación (pedir apellido, confirmar dato, o lo que siga en el flujo).
 
 CÓMO PIENSAS — ENTIDADES, NO PASOS:
 Tu objetivo es completar la ficha para conectar al cliente con el asesor correcto.
@@ -1324,6 +1321,17 @@ def _regex_classify(text: str):
     import unicodedata, itertools
     t = _normalize_text(text)
 
+    # Estado civil / composición del hogar — siempre NORMAL (contexto inmobiliario)
+    civil_patterns = [
+        r"\bsoy (solter[oa]|casad[oa]|viud[oa]|divorciad[oa])\b",
+        r"\bestamos? (casad[oa]s?|solter[oa]s?)\b",
+        r"\bsomos (casad[oa]s?|solter[oa]s?)\b",
+        r"\b(somos|vivimos|vivire?mos) (2|3|4|5|6|dos|tres|cuatro|cinco|seis)\b",
+    ]
+    for p in civil_patterns:
+        if re.search(p, t):
+            return "NORMAL"
+
     # Mashing / emoji spam (INSULT-like noise)
     clean = text.strip()
     if len(clean) > 7 and " " not in clean.replace("!", "").replace("?", ""):
@@ -1374,7 +1382,6 @@ def _regex_classify(text: str):
     romantic_fuzzy = [
         r"ma+mi+(ta)?", r"ma+ma+(ci)?ta", r"be+be+(ci)?ta?", r"chu+la+",
         r"gu+a+pa+", r"bo+ni+ta+", r"li+n+da+", r"he+rm+o+sa+",
-        r"so+lt+er+a", r"est+a+s? sol+",
     ]
     for p in romantic_patterns:
         if re.search(p, t):
@@ -1409,7 +1416,11 @@ def _openai_classify(text: str) -> str:
                 {"role": "system", "content": (
                     "Clasifica el mensaje del usuario en exactamente una de estas categorías:\n"
                     "PROPERTY_RELATED, PERSONAL_QUESTION, ROMANTIC, SEXUAL, INSULT, NORMAL\n"
-                    "Responde ÚNICAMENTE con la categoría, sin explicación."
+                    "Responde ÚNICAMENTE con la categoría, sin explicación.\n"
+                    "IMPORTANTE: 'soy soltero', 'soy soltera', 'soy casado', 'somos dos', "
+                    "'somos tres' y cualquier descripción del estado civil o composición del "
+                    "hogar en contexto inmobiliario es NORMAL — no es ROMANTIC ni PERSONAL_QUESTION. "
+                    "ROMANTIC solo aplica cuando el usuario intenta coquetear con el asistente."
                 )},
                 {"role": "user", "content": text},
             ],
