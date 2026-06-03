@@ -1529,6 +1529,39 @@ def _maybe_label_sin_potencial(phone_number: str, user_message: str):
             print(f"[Spelling] error aplicando label: {e}")
 
 
+def _maybe_label_cliente_potencial(phone_number: str, category: str):
+    """Aplica label cliente-potencial cuando el cliente lleva 4+ mensajes relevantes."""
+    if not _redis:
+        return
+    # Si ya fue etiquetado o marcado spam, no hacer nada
+    if _redis.exists(f"potencial_ok:{phone_number}") or _redis.exists(f"spam:{phone_number}"):
+        return
+    # Incrementar contador de mensajes entrantes
+    count_key = f"msg_count:{phone_number}"
+    count = _redis.incr(count_key)
+    _redis.expire(count_key, HISTORY_TTL)
+    if count < 4:
+        return
+    # Al llegar a 4: revisar si tiene datos de ficha o contenido inmobiliario
+    datos = client_data.get(phone_number, {})
+    tiene_datos = any(k in datos for k in ("intencion", "tipo", "presupuesto", "ciudad", "correo"))
+    es_inmobiliario = category in ("PROPERTY_RELATED", "NORMAL") or tiene_datos
+    if not es_inmobiliario:
+        return
+    try:
+        datos_cw = client_data_load(phone_number)
+        c_id     = chatwoot_get_or_create_contact(phone_number, datos_cw)
+        if c_id:
+            conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+            if conv_id:
+                chatwoot_ensure_label_exists("cliente-potencial", color="#1F93FF")
+                chatwoot_add_label(conv_id, "cliente-potencial")
+                _redis.setex(f"potencial_ok:{phone_number}", HISTORY_TTL, "1")
+                print(f"[Potencial] label cliente-potencial aplicado a {phone_number} (msg #{count})")
+    except Exception as e:
+        print(f"[Potencial] error aplicando label: {e}")
+
+
 def _split_into_fragments(text):
     """Divide texto en 1-3 fragmentos naturales para WhatsApp."""
     text = text.strip()
@@ -2514,6 +2547,9 @@ def receive_message():
 
             # Detector de ortografía — label sin-potencial si >50% errores
             _maybe_label_sin_potencial(phone_number, user_message)
+
+            # Contador de engagement — label cliente-potencial al 4º mensaje relevante
+            _maybe_label_cliente_potencial(phone_number, category)
 
             if category in ("SEXUAL", "INSULT"):
                 _mark_as_spam(phone_number)
