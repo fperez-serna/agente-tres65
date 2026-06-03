@@ -2900,6 +2900,7 @@ def receive_message():
                 name = nombre_full.split()[0] if nombre_full else ""
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
+                chatwoot_sync_bot(phone_number, greeting)
                 return "OK", 200
 
             if phone_number in waiting_for_ficha_correction:
@@ -2968,6 +2969,7 @@ def receive_message():
                         if len(name_parts) == 1:
                             waiting_for_apellido.add(phone_number)
                             send_whatsapp_message(phone_number, "y tu apellido?")
+                            chatwoot_sync_bot(phone_number, "y tu apellido?")
                         else:
                             _send_paso2(phone_number, name_parts[0], user_message)
                         return "OK", 200
@@ -3044,6 +3046,7 @@ def receive_message():
             else:
                 saludo_txt = "¡Hola! 😊\n\nQué gusto saludarte.\n\nSoy María de TRES65 Inmobiliaria.\n\n¿Con quién tengo el gusto?"
             send_whatsapp_message(phone_number, saludo_txt)
+            chatwoot_sync_bot(phone_number, saludo_txt)
             history.append({"role": "assistant", "content": saludo_txt})
             history_set(phone_number, history[-20:])
             update_last_activity(phone_number)
