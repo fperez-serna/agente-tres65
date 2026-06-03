@@ -327,8 +327,8 @@ def send_leads_report(extra_phone=None):
         datos = client_data_load(phone_clean) if phone_clean else {}
 
         campos = []
-        if name and name != phone_clean:
-            campos.append(f"Nombre: {name}")
+        nombre_display = name if (name and name != phone_clean and not name.replace("+","").isdigit()) else "Por definir"
+        campos.append(f"Nombre: {nombre_display}")
         if phone:
             campos.append(f"Teléfono: {phone}")
         if email:
