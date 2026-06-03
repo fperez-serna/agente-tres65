@@ -1601,23 +1601,21 @@ def _maybe_label_sin_potencial(phone_number: str, user_message: str):
 
 
 def _maybe_label_cliente_potencial(phone_number: str, category: str):
-    """Aplica label cliente-potencial cuando el cliente lleva 4+ mensajes relevantes."""
+    """Aplica label cliente-potencial cuando el cliente lleva 6+ mensajes
+    Y tiene al menos un dato de ficha (intención, tipo, presupuesto, ciudad o correo)."""
     if not _redis:
         return
-    # Si ya fue etiquetado o marcado spam, no hacer nada
     if _redis.exists(f"potencial_ok:{phone_number}") or _redis.exists(f"spam:{phone_number}"):
         return
-    # Incrementar contador de mensajes entrantes
     count_key = f"msg_count:{phone_number}"
     count = _redis.incr(count_key)
     _redis.expire(count_key, HISTORY_TTL)
-    if count < 4:
+    if count < 6:
         return
-    # Al llegar a 4: revisar si tiene datos de ficha o contenido inmobiliario
+    # Requiere al menos un dato concreto de ficha — saludos solos no califican
     datos = client_data.get(phone_number, {})
-    tiene_datos = any(k in datos for k in ("intencion", "tipo", "presupuesto", "ciudad", "correo"))
-    es_inmobiliario = category in ("PROPERTY_RELATED", "NORMAL") or tiene_datos
-    if not es_inmobiliario:
+    tiene_datos = any(k in datos for k in ("intencion", "tipo", "presupuesto", "ciudad", "correo", "nombre_completo"))
+    if not tiene_datos:
         return
     try:
         datos_cw = client_data_load(phone_number)
