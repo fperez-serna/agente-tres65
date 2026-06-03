@@ -2054,6 +2054,11 @@ def send_followup(phone_number):
 
 
 def schedule_followup(phone_number):
+    # Una vez enviada o confirmada la ficha, el asesor toma el control — sin follow-ups automáticos
+    if phone_number in ficha_confirmada:
+        return
+    if _redis and _redis.exists(f"ficha_pendiente:{phone_number}"):
+        return
     cancel_followup(phone_number)
     job_id = f"followup_{phone_number}"
     run_time = datetime.now() + timedelta(hours=4)
@@ -3185,6 +3190,7 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 last_ficha_text[phone_number] = ficha_text
                 if _redis:
                     _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
+                cancel_followup(phone_number)  # ficha enviada — bot ya no inicia contacto
                 send_whatsapp_ficha_confirmation(phone_number, ficha_text)
                 schedule_ficha_autoconfirm(phone_number)
                 return  # ficha confirmation is terminal — nothing else needed
