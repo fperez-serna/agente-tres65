@@ -285,48 +285,59 @@ def send_leads_report(extra_phone=None):
                     return "\n".join(lines)
         return ""
 
-    def _conv_summary_gpt(client_msgs_text):
-        """Resumen de 1-2 oraciones de la conversación del cliente."""
-        if not client_msgs_text.strip():
-            return "Sin mensajes del cliente."
+    def _conv_summary_gpt(msgs, ficha_lines=None):
+        """2 oraciones: qué busca + contexto personal relevante."""
+        client_text = "\n".join(
+            f"- {m.get('content','')}" for m in msgs
+            if m.get("message_type") == 0 and not m.get("private") and m.get("content")
+        )
+        ficha_str = "\n".join(ficha_lines or [])
+        if not client_text.strip() and not ficha_str:
+            return "Sin información disponible."
         try:
             resp = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content":
-                        "Resume en máximo 2 oraciones qué busca este cliente inmobiliario "
-                        "basándote en sus mensajes. Sé específico: tipo de propiedad, zona, "
-                        "presupuesto si lo mencionó. Sin introducción, solo el resumen."},
-                    {"role": "user", "content": client_msgs_text[:1500]},
+                    {"role": "system", "content": (
+                        "Eres asistente de un asesor inmobiliario en Mérida. "
+                        "Escribe EXACTAMENTE 2 oraciones sobre este lead:\n"
+                        "• Oración 1: qué busca (tipo, compra/renta/inversión, características clave, zona, presupuesto).\n"
+                        "• Oración 2: contexto personal relevante (de dónde es, si ya vive en Mérida o viene de fuera, urgencia, dudas que expresó, tono).\n"
+                        "Usa solo datos reales. Si algo no se mencionó, omítelo en lugar de decir 'no se especificó'."
+                    )},
+                    {"role": "user", "content": f"FICHA:\n{ficha_str}\n\nMENSAJES:\n{client_text[:2000]}"},
                 ],
-                max_tokens=80, temperature=0,
+                max_tokens=120, temperature=0,
             )
             return resp.choices[0].message.content.strip()
         except Exception:
-            return client_msgs_text[:150]
+            return client_text[:150]
 
-    def _format_ficha_completa(ficha_raw, i):
-        """Formatea la ficha completa para el reporte."""
-        lines = []
+    def _format_ficha_completa(ficha_raw, msgs, i):
+        """Formatea la ficha completa + resumen GPT para el reporte."""
+        _SKIP = ("easybroker", "tres65inmobiliaria", "🔗", "✅", "LEAD CALIFICADO", "¿Confirmas", "¿Todo correcto")
+        ficha_lines = []
         for line in ficha_raw.splitlines():
             line = line.strip()
-            if line and not line.startswith("✅") and "LEAD CALIFICADO" not in line:
-                lines.append(line)
-        return f"{i}. " + "\n".join(lines) if lines else f"{i}. (ficha sin formato)"
+            if not line or any(s in line for s in _SKIP):
+                continue
+            if any(line.startswith(campo) for campo in _FICHA_CAMPOS):
+                ficha_lines.append(line)
+        resumen = _conv_summary_gpt(msgs, ficha_lines)
+        body = "\n".join(ficha_lines) if ficha_lines else "(ficha sin formato)"
+        return f"{i}. {body}\n\n   📝 {resumen}"
 
     def _format_potencial(conv, msgs, i):
-        """Formatea lead potencial mostrando solo campos disponibles."""
+        """Formatea lead potencial mostrando solo campos disponibles + resumen GPT."""
         meta   = conv.get("meta", {})
         sender = meta.get("sender", {})
         name   = sender.get("name", "")
         phone  = sender.get("phone_number", "")
         email  = sender.get("email", "") or ""
 
-        # Intentar extraer datos de ficha desde el historial Redis
         phone_clean = phone.lstrip("+") if phone else ""
         datos = client_data_load(phone_clean) if phone_clean else {}
 
-        # Origen: anuncio o link directo
         conv_labels = conv.get("labels", [])
         ad_label = next((l for l in conv_labels if l.startswith("ad-")), None)
         origen = ad_label.replace("ad-", "").replace("-", " ").title() if ad_label else "Link directo"
@@ -348,13 +359,8 @@ def send_leads_report(extra_phone=None):
         if datos.get("ciudad"):
             campos.append(f"Viene de: {datos['ciudad']}")
 
-        # Resumen de conversación via GPT
-        client_text = "\n".join(
-            (m.get("content") or "") for m in msgs
-            if m.get("message_type") == 0 and not m.get("private") and m.get("content")
-        )
-        resumen = _conv_summary_gpt(client_text)
-        campos.append(f"Notas: {resumen}")
+        resumen = _conv_summary_gpt(msgs, campos)
+        campos.append(f"\n   📝 {resumen}")
 
         return f"{i}. " + "\n".join(campos)
 
@@ -393,7 +399,7 @@ def send_leads_report(extra_phone=None):
                     continue
                 msgs = _get_msgs(base, headers, conv_id)
                 ficha_raw = _parse_ficha_from_note(msgs)
-                listos_nuevos.append({"conv_id": conv_id, "ficha": ficha_raw, "conv": conv})
+                listos_nuevos.append({"conv_id": conv_id, "ficha": ficha_raw, "conv": conv, "msgs": msgs})
                 _time.sleep(0.1)
 
             # ── SECCIÓN 2: CLIENTES POTENCIALES ───────────────────────────
@@ -419,7 +425,7 @@ def send_leads_report(extra_phone=None):
             if listos_nuevos:
                 bloques.append(f"\n✅ *LISTOS PARA ASESOR* ({len(listos_nuevos)})\n")
                 for i, l in enumerate(listos_nuevos, 1):
-                    bloques.append(_format_ficha_completa(l["ficha"] or "(sin ficha)", i))
+                    bloques.append(_format_ficha_completa(l["ficha"] or "", l["msgs"], i))
 
             if potencial_nuevos:
                 bloques.append(f"\n🟡 *CLIENTES POTENCIALES — ficha incompleta pero hay interés* ({len(potencial_nuevos)})\n")
