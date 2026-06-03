@@ -1470,37 +1470,49 @@ def classify_message(text: str) -> dict:
 
 
 # ── Detector de ortografía ────────────────────────────────────────────────────
-
-try:
-    from spellchecker import SpellChecker as _SpellChecker
-    _spell_es = _SpellChecker(language="es")
-    _SPELL_AVAILABLE = True
-except Exception:
-    _SPELL_AVAILABLE = False
-    print("[Spelling] pyspellchecker no disponible — detector desactivado")
+# Patrones de mala ortografía en español mexicano — indicadores confiables
+# sin depender de pyspellchecker (demasiados falsos positivos en español)
+_BAD_SPELLING_PATTERNS = [
+    # k por c o qu (kasa, kiero, kerer, komo, kual)
+    r"\bk[aeiouáéíóú]",
+    r"\bk(?:iero|iero|eren|ere|eres|ieres|iere)\b",
+    # omisión de h inicial (ola, aber, aser, aci, avia, ablar)
+    r"\b(?:ola|aber|aser|acer|ablar|avia|acia|aremos|acia)\b",
+    # x por ch o s (xa, xido, xido)
+    r"\bx[aeiouáéíóú]",
+    # ll → y (yamo, yegar, yeva, yave)
+    r"\b(?:yamo|yegar|yeva|yave|yeva|yegar|yoro|yorar)\b",
+    # letras duplicadas incorrectas (mucaas, quieroo, casaa)
+    r"([a-z])\1{2,}",
+    # palabras comunes mal escritas
+    r"\b(?:mucas|muxas|desir|vinir|benir|haiga|hubiera[ns]?|sepa[sn]?|sepas)\b",
+    r"\b(?:toy|taba|taba[mn]|tubo|tubo)\b",  # toy=estoy, tubo=tuvo
+    r"\b(?:porfabor|porfa|porq|xq|pq)\b",   # porfa, xq, pq = porque
+]
+_BAD_SPELLING_RE = [re.compile(p, re.IGNORECASE) for p in _BAD_SPELLING_PATTERNS]
 
 def _spelling_error_ratio(text: str) -> float:
-    """Devuelve la proporción de palabras con error ortográfico (0.0 – 1.0).
-    Ignora números, palabras de 1-2 letras y palabras capitalizadas (nombres)."""
-    if not _SPELL_AVAILABLE or not text:
+    """Cuenta qué fracción de palabras (≥3 letras) coinciden con patrones
+    de mala ortografía. No depende de diccionario externo."""
+    if not text:
         return 0.0
-    tokens = re.findall(r"[a-záéíóúüñA-ZÁÉÍÓÚÜÑ]{3,}", text)
-    # Ignorar palabras que inician con mayúscula (probable nombre propio)
+    t = _normalize_text(text)
+    tokens = re.findall(r"[a-záéíóúüñ]{3,}", t)
     tokens = [w for w in tokens if not w[0].isupper()]
-    if len(tokens) < 6:
+    if len(tokens) < 8:
         return 0.0
-    words_lower = [w.lower() for w in tokens]
-    misspelled = _spell_es.unknown(words_lower)
-    return len(misspelled) / len(words_lower)
+    bad = sum(
+        1 for w in tokens
+        if any(rx.search(w) for rx in _BAD_SPELLING_RE)
+    )
+    return bad / len(tokens)
 
 def _maybe_label_sin_potencial(phone_number: str, user_message: str):
-    """Si el cliente acumula >50 % de faltas de ortografía, le pone label sin-potencial."""
-    if not _SPELL_AVAILABLE:
-        return
+    """Aplica label sin-potencial cuando el texto acumulado del cliente
+    tiene ≥30 % de palabras con patrones de mala ortografía."""
     redis_key = f"spelling_checked:{phone_number}"
     if _redis and _redis.exists(redis_key):
-        return  # ya revisado
-    # Acumular texto del cliente en Redis para tener suficiente muestra
+        return
     acc_key = f"spelling_acc:{phone_number}"
     if _redis:
         _redis.append(acc_key, " " + user_message)
@@ -1509,21 +1521,22 @@ def _maybe_label_sin_potencial(phone_number: str, user_message: str):
     else:
         accumulated = user_message
     word_count = len(re.findall(r"[a-záéíóúüñ]{3,}", accumulated.lower()))
-    if word_count < 20:
-        return  # muestra insuficiente, esperar más mensajes
+    if word_count < 15:
+        return  # muestra insuficiente
     ratio = _spelling_error_ratio(accumulated)
     print(f"[Spelling] {phone_number} ratio={ratio:.2f} ({word_count} palabras)")
     if _redis:
         _redis.setex(redis_key, HISTORY_TTL, str(round(ratio, 2)))
-    if ratio >= 0.50:
+    if ratio >= 0.30:
         try:
-            datos  = client_data_load(phone_number)
-            c_id   = chatwoot_get_or_create_contact(phone_number, datos)
+            datos   = client_data_load(phone_number)
+            c_id    = chatwoot_get_or_create_contact(phone_number, datos)
             if c_id:
                 conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
                 if conv_id:
                     chatwoot_ensure_label_exists("sin-potencial", color="#9E9E9E")
                     chatwoot_add_label(conv_id, "sin-potencial")
+                    _redis.setex(redis_key, HISTORY_TTL, str(round(ratio, 2)))
                     print(f"[Spelling] label sin-potencial aplicado a {phone_number} (ratio={ratio:.0%})")
         except Exception as e:
             print(f"[Spelling] error aplicando label: {e}")
