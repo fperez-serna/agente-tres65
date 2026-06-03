@@ -326,6 +326,11 @@ def send_leads_report(extra_phone=None):
         phone_clean = phone.lstrip("+") if phone else ""
         datos = client_data_load(phone_clean) if phone_clean else {}
 
+        # Origen: anuncio o link directo
+        conv_labels = conv.get("labels", [])
+        ad_label = next((l for l in conv_labels if l.startswith("ad-")), None)
+        origen = ad_label.replace("ad-", "").replace("-", " ").title() if ad_label else "Link directo"
+
         campos = []
         nombre_display = name if (name and name != phone_clean and not name.replace("+","").isdigit()) else "Por definir"
         campos.append(f"Nombre: {nombre_display}")
@@ -333,6 +338,7 @@ def send_leads_report(extra_phone=None):
             campos.append(f"Teléfono: {phone}")
         if email:
             campos.append(f"Correo: {email}")
+        campos.append(f"Origen: {origen}")
         if datos.get("tipo"):
             campos.append(f"Tipo: {datos['tipo']}")
         if datos.get("intencion"):
