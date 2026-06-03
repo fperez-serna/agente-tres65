@@ -267,12 +267,22 @@ def send_leads_report(extra_phone=None):
                          headers=headers, timeout=10)
         return r.json().get("payload", []) if r.ok else []
 
+    # Prefijos válidos de campos de ficha
+    _FICHA_CAMPOS = ("Nombre:", "Teléfono:", "Correo:", "Tipo:", "Uso:", "Presupuesto:",
+                     "Zona:", "Viene de:", "Origen:", "Notas:")
+
     def _parse_ficha_from_note(msgs):
-        """Extrae la ficha del comentario LEAD CALIFICADO."""
+        """Extrae solo las líneas de campos de la ficha del comentario LEAD CALIFICADO."""
         for m in reversed(msgs):
             content = m.get("content") or ""
-            if "LEAD CALIFICADO" in content or ("Nombre:" in content and "Teléfono:" in content):
-                return content
+            if "Nombre:" in content and "Teléfono:" in content:
+                lines = []
+                for line in content.splitlines():
+                    line = line.strip()
+                    if any(line.startswith(campo) for campo in _FICHA_CAMPOS):
+                        lines.append(line)
+                if lines:
+                    return "\n".join(lines)
         return ""
 
     def _conv_summary_gpt(client_msgs_text):
