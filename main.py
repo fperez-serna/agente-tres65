@@ -1290,7 +1290,9 @@ def chatwoot_add_label(conv_id, label):
 
 
 def chatwoot_add_labels(conv_id, labels):
-    """Agrega múltiples etiquetas a la vez preservando las existentes."""
+    """Crea los labels si no existen y los agrega a la conversación."""
+    for lbl in labels:
+        chatwoot_ensure_label_exists(lbl)
     base = chatwoot_base()
     r = requests.get(f"{base}/conversations/{conv_id}/labels",
                      headers=_chatwoot_headers(), timeout=5)
@@ -1731,7 +1733,9 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
         conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
         if not conv_id:
             return
-        # Etiquetas según datos de la ficha (todas de una sola vez)
+        # Garantizar que los labels base existen con sus colores
+        chatwoot_ensure_label_exists("listo-para-asesor", color="#00BF6F")  # verde
+        chatwoot_ensure_label_exists("cliente-potencial", color="#1F93FF")  # azul
         labels = ["listo-para-asesor"]
         # Etiqueta del anuncio si viene de Meta
         ctx_orig = ad_context.get(phone_number, {})
