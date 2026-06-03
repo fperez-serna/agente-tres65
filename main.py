@@ -191,14 +191,14 @@ def delete_spam_conversations():
 
 
 def cleanup_empty_old_conversations():
-    """Resuelve conversaciones sin mensaje de cliente con más de 4 días. Corre a las 10pm Mérida."""
+    """Resuelve conversaciones sin mensaje de cliente con más de 1 día. Corre a las 10pm y 12pm Mérida."""
     if not os.environ.get("CHATWOOT_TOKEN"):
         return
     try:
         import time as _time
         base     = chatwoot_base()
         headers  = _chatwoot_headers()
-        cutoff   = datetime.now() - timedelta(days=4)
+        cutoff   = datetime.now() - timedelta(days=1)
         page     = 1
         resolved = 0
         while True:
@@ -354,7 +354,9 @@ scheduler.add_job(check_and_send_24h_followups, "interval", hours=1, id="followu
 scheduler.add_job(delete_spam_conversations, "cron", hour=0, minute=0,
                   timezone="America/Merida", id="limpieza_spam")
 scheduler.add_job(cleanup_empty_old_conversations, "cron", hour=22, minute=0,
-                  timezone="America/Merida", id="limpieza_vacias")
+                  timezone="America/Merida", id="limpieza_vacias_noche")
+scheduler.add_job(cleanup_empty_old_conversations, "cron", hour=12, minute=0,
+                  timezone="America/Merida", id="limpieza_vacias_mediodia")
 scheduler.add_job(send_leads_report, "cron", hour=16, minute=0,
                   timezone="America/Merida", id="reporte_leads")
 scheduler.start()
@@ -1527,21 +1529,23 @@ def classify_message(text: str) -> dict:
 # Patrones de mala ortografía en español mexicano — indicadores confiables
 # sin depender de pyspellchecker (demasiados falsos positivos en español)
 _BAD_SPELLING_PATTERNS = [
-    # k por c o qu (kasa, kiero, kerer, komo, kual)
+    # k por c o qu (kasa, kiero, komo, kual, keria, kerer)
     r"\bk[aeiouáéíóú]",
-    r"\bk(?:iero|iero|eren|ere|eres|ieres|iere)\b",
-    # omisión de h inicial (ola, aber, aser, aci, avia, ablar)
-    r"\b(?:ola|aber|aser|acer|ablar|avia|acia|aremos|acia)\b",
-    # x por ch o s (xa, xido, xido)
+    r"\bk(?:iero|ieren|ere|eres|ieres|iere|eria|erias|erian)\b",
+    # omisión de h inicial (ola, aber, aser, ablar, avia, aser)
+    r"\b(?:ola|aber|aser|acer|ablar|avia|acia|aiga|acer)\b",
+    # aki, akí en vez de aquí
+    r"\bak[ií]\b",
+    # x por ch (xa, xido, xevere)
     r"\bx[aeiouáéíóú]",
-    # ll → y (yamo, yegar, yeva, yave)
-    r"\b(?:yamo|yegar|yeva|yave|yeva|yegar|yoro|yorar)\b",
-    # letras duplicadas incorrectas (mucaas, quieroo, casaa)
+    # ll → y sustitución
+    r"\b(?:yamo|yegar|yeva|yave|yoro|yorar|yegar)\b",
+    # letras triplicadas (holaaa, kiieroo)
     r"([a-z])\1{2,}",
     # palabras comunes mal escritas
-    r"\b(?:mucas|muxas|desir|vinir|benir|haiga|hubiera[ns]?|sepa[sn]?|sepas)\b",
-    r"\b(?:toy|taba|taba[mn]|tubo|tubo)\b",  # toy=estoy, tubo=tuvo
-    r"\b(?:porfabor|porfa|porq|xq|pq)\b",   # porfa, xq, pq = porque
+    r"\b(?:mucas|muxas|desir|vinir|benir|haiga)\b",
+    r"\b(?:toy|taba)\b",          # toy=estoy, taba=estaba
+    r"\b(?:porfabor|porq|xq|pq)\b",
 ]
 _BAD_SPELLING_RE = [re.compile(p, re.IGNORECASE) for p in _BAD_SPELLING_PATTERNS]
 
@@ -1581,7 +1585,7 @@ def _maybe_label_sin_potencial(phone_number: str, user_message: str):
     print(f"[Spelling] {phone_number} ratio={ratio:.2f} ({word_count} palabras)")
     if _redis:
         _redis.setex(redis_key, HISTORY_TTL, str(round(ratio, 2)))
-    if ratio >= 0.30:
+    if ratio >= 0.20:
         try:
             datos   = client_data_load(phone_number)
             c_id    = chatwoot_get_or_create_contact(phone_number, datos)
