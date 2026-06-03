@@ -2937,6 +2937,21 @@ def receive_message():
 
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
+                # Si ya tenemos primer nombre guardado, este mensaje ES el apellido
+                _nombre_actual = client_data.get(phone_number, {}).get("nombre_completo", "")
+                if _nombre_actual and len(_nombre_actual.split()) == 1:
+                    _apellido = user_message.strip().title()
+                    _apellido_clean = _apellido.strip(".,!?¿¡\"'")
+                    if _apellido_clean and _normalize_text(_apellido_clean).isalpha() and _normalize_text(_apellido_clean) not in NAME_BLACKLIST:
+                        waiting_for_name.discard(phone_number)
+                        full_name = f"{_nombre_actual} {_apellido_clean}"
+                        client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
+                        save_nombre_redis(phone_number, full_name)
+                        client_data_save(phone_number)
+                        chatwoot_update_contact_name(phone_number, full_name)
+                        _send_paso2(phone_number, _nombre_actual, user_message)
+                        return "OK", 200
+
                 es_pregunta = "?" in user_message or any(k in user_message.lower() for k in [
                     "renta", "venta", "precio", "costo", "cuánto", "cuanto", "cuartos",
                     "recámara", "recamara", "baño", "bano", "alberca", "jardín", "jardin",
@@ -3226,6 +3241,15 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         history.append({"role": "assistant", "content": reply_clean})
         history_set(phone_number, history[-20:])
+
+        # Si GPT pidió el apellido y solo tenemos el primer nombre, setar el flag
+        _tiene_solo_primer_nombre = (
+            client_data.get(phone_number, {}).get("nombre_completo", "") and
+            len(client_data[phone_number]["nombre_completo"].split()) == 1
+        )
+        if _tiene_solo_primer_nombre and "apellido" in reply_clean.lower():
+            waiting_for_apellido.add(phone_number)
+            waiting_for_name.discard(phone_number)
 
         def dispatch_reply(reply_text):
             """Process ALL tokens in GPT reply. Each token is handled in order;
