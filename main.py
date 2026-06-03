@@ -241,12 +241,110 @@ def cleanup_empty_old_conversations():
 
 
 def send_leads_report(extra_phone=None):
-    """Genera y manda por WhatsApp solo los leads nuevos con label cliente-potencial."""
+    """Reporte con dos secciones: listos para asesor y clientes potenciales. Corre a las 9am y 4pm."""
     import threading
 
-    def _run():
-        print("[Reporte] Iniciando consulta a Chatwoot...")
+    def _get_convs_by_label(base, headers, label):
+        convs, page = [], 1
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"labels[]": label, "page": page},
+                             headers=headers, timeout=15)
+            if not r.ok:
+                break
+            payload = r.json().get("data", {})
+            batch = payload.get("payload", []) if isinstance(payload, dict) else r.json().get("payload", [])
+            if not batch:
+                break
+            convs.extend(batch)
+            if len(batch) < 25:
+                break
+            page += 1
+        return convs
 
+    def _get_msgs(base, headers, conv_id):
+        r = requests.get(f"{base}/conversations/{conv_id}/messages",
+                         headers=headers, timeout=10)
+        return r.json().get("payload", []) if r.ok else []
+
+    def _parse_ficha_from_note(msgs):
+        """Extrae la ficha del comentario LEAD CALIFICADO."""
+        for m in reversed(msgs):
+            content = m.get("content") or ""
+            if "LEAD CALIFICADO" in content or ("Nombre:" in content and "Teléfono:" in content):
+                return content
+        return ""
+
+    def _conv_summary_gpt(client_msgs_text):
+        """Resumen de 1-2 oraciones de la conversación del cliente."""
+        if not client_msgs_text.strip():
+            return "Sin mensajes del cliente."
+        try:
+            resp = openai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content":
+                        "Resume en máximo 2 oraciones qué busca este cliente inmobiliario "
+                        "basándote en sus mensajes. Sé específico: tipo de propiedad, zona, "
+                        "presupuesto si lo mencionó. Sin introducción, solo el resumen."},
+                    {"role": "user", "content": client_msgs_text[:1500]},
+                ],
+                max_tokens=80, temperature=0,
+            )
+            return resp.choices[0].message.content.strip()
+        except Exception:
+            return client_msgs_text[:150]
+
+    def _format_ficha_completa(ficha_raw, i):
+        """Formatea la ficha completa para el reporte."""
+        lines = []
+        for line in ficha_raw.splitlines():
+            line = line.strip()
+            if line and not line.startswith("✅") and "LEAD CALIFICADO" not in line:
+                lines.append(line)
+        return f"{i}. " + "\n".join(lines) if lines else f"{i}. (ficha sin formato)"
+
+    def _format_potencial(conv, msgs, i):
+        """Formatea lead potencial mostrando solo campos disponibles."""
+        meta   = conv.get("meta", {})
+        sender = meta.get("sender", {})
+        name   = sender.get("name", "")
+        phone  = sender.get("phone_number", "")
+        email  = sender.get("email", "") or ""
+
+        # Intentar extraer datos de ficha desde el historial Redis
+        phone_clean = phone.lstrip("+") if phone else ""
+        datos = client_data_load(phone_clean) if phone_clean else {}
+
+        campos = []
+        if name and name != phone_clean:
+            campos.append(f"Nombre: {name}")
+        if phone:
+            campos.append(f"Teléfono: {phone}")
+        if email:
+            campos.append(f"Correo: {email}")
+        if datos.get("tipo"):
+            campos.append(f"Tipo: {datos['tipo']}")
+        if datos.get("intencion"):
+            campos.append(f"Uso: {datos['intencion']}")
+        if datos.get("presupuesto"):
+            campos.append(f"Presupuesto: {datos['presupuesto']}")
+        if datos.get("ciudad"):
+            campos.append(f"Viene de: {datos['ciudad']}")
+
+        # Resumen de conversación via GPT
+        client_text = "\n".join(
+            (m.get("content") or "") for m in msgs
+            if m.get("message_type") == 0 and not m.get("private") and m.get("content")
+        )
+        resumen = _conv_summary_gpt(client_text)
+        campos.append(f"Notas: {resumen}")
+
+        return f"{i}. " + "\n".join(campos)
+
+    def _run():
+        import time as _time
+        print("[Reporte] Generando...")
         token  = os.environ.get("CHATWOOT_TOKEN")
         phones = list({p.strip() for p in [
             os.environ.get("REPORTE_PHONE_1", ""),
@@ -259,89 +357,74 @@ def send_leads_report(extra_phone=None):
                 try:
                     send_whatsapp_message(p, msg)
                 except Exception as _ne:
-                    print(f"[Reporte] _notify falló para {p}: {_ne}")
+                    print(f"[Reporte] _notify falló {p}: {_ne}")
 
-        if not token:
-            _notify("reporte error: CHATWOOT_TOKEN no configurado en Railway")
-            return
-        if not phones:
-            print("[Reporte] Sin números destino — omitido")
+        if not token or not phones:
+            print("[Reporte] Sin token o sin teléfonos destino")
             return
         try:
+            from datetime import timezone, timedelta
             base    = chatwoot_base()
             headers = _chatwoot_headers()
-            page    = 1
-            nuevos  = []
-            while True:
-                r = requests.get(f"{base}/conversations",
-                                 params={"labels[]": "cliente-potencial", "page": page},
-                                 headers=headers, timeout=15)
-                if not r.ok:
-                    _notify(f"error consultando Chatwoot: {r.status_code} — {r.text[:100]}")
-                    return
-                data = r.json()
-                # Chatwoot puede devolver payload directo o anidado en data
-                payload = data.get("data", {})
-                convs = payload.get("payload", []) if isinstance(payload, dict) else data.get("payload", [])
-                if not convs:
-                    break
-                for conv in convs:
-                    conv_id = str(conv.get("id", ""))
-                    if _redis and _redis.exists(f"reported_lead:{conv_id}"):
-                        continue
-                    meta   = conv.get("meta", {})
-                    sender = meta.get("sender", {})
-                    name   = sender.get("name", "—")
-                    phone  = sender.get("phone_number", "—")
-                    email  = sender.get("email", "") or "—"
-                    conv_labels = conv.get("labels", [])
-                    ad_label = next((l for l in conv_labels if l.startswith("ad-")), None)
-                    origen = ad_label.replace("ad-", "").replace("-", " ").title() if ad_label else "Link directo"
-                    last_msg = ""
-                    msgs_r = requests.get(f"{base}/conversations/{conv_id}/messages",
-                                          headers=headers, timeout=10)
-                    if msgs_r.ok:
-                        all_msgs = msgs_r.json().get("payload", [])
-                        for m in reversed(all_msgs):
-                            if "LEAD CALIFICADO" in (m.get("content") or ""):
-                                for line in m["content"].splitlines():
-                                    if line.startswith("Notas:"):
-                                        last_msg = line.replace("Notas:", "").strip()
-                                        break
-                                break
-                        if not last_msg:
-                            for m in reversed(all_msgs):
-                                if m.get("message_type") == 0 and not m.get("private"):
-                                    last_msg = (m.get("content") or "")[:120]
-                                    break
-                    nuevos.append({
-                        "conv_id": conv_id, "name": name, "phone": phone,
-                        "email": email, "origen": origen, "notas": last_msg or "—"
-                    })
-                if len(convs) < 25:
-                    break
-                page += 1
+            hoy     = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y, %I:%M %p")
 
-            from datetime import timezone, timedelta
-            hoy = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y")
-            if not nuevos:
-                _notify(f"📋 Reporte leads — {hoy}\n\nSin leads nuevos.")
-            else:
-                lineas = [f"📋 Leads nuevos — {hoy}\n"]
-                for i, l in enumerate(nuevos, 1):
-                    lineas.append(
-                        f"{i}. {l['name']}\n"
-                        f"   📱 {l['phone']}\n"
-                        f"   📧 {l['email']}\n"
-                        f"   📢 {l['origen']}\n"
-                        f"   📝 {l['notas']}"
-                    )
-                lineas.append(f"\nTotal nuevos: {len(nuevos)}")
-                _notify("\n\n".join(lineas))
-                if _redis:
-                    for l in nuevos:
-                        _redis.set(f"reported_lead:{l['conv_id']}", "1")
-            print(f"[Reporte] Listo — {len(nuevos)} leads nuevos")
+            # ── SECCIÓN 1: LISTOS PARA ASESOR ─────────────────────────────
+            listos_convs = _get_convs_by_label(base, headers, "listo-para-asesor")
+            listos_nuevos = []
+            for conv in listos_convs:
+                conv_id = str(conv.get("id", ""))
+                if _redis and _redis.exists(f"reported_listo:{conv_id}"):
+                    continue
+                msgs = _get_msgs(base, headers, conv_id)
+                ficha_raw = _parse_ficha_from_note(msgs)
+                listos_nuevos.append({"conv_id": conv_id, "ficha": ficha_raw, "conv": conv})
+                _time.sleep(0.1)
+
+            # ── SECCIÓN 2: CLIENTES POTENCIALES ───────────────────────────
+            potencial_convs = _get_convs_by_label(base, headers, "cliente-potencial")
+            potencial_nuevos = []
+            listo_ids = {str(c.get("id")) for c in listos_convs}
+            for conv in potencial_convs:
+                conv_id = str(conv.get("id", ""))
+                if conv_id in listo_ids:
+                    continue  # ya aparece en sección 1
+                if _redis and _redis.exists(f"reported_potencial:{conv_id}"):
+                    continue
+                msgs = _get_msgs(base, headers, conv_id)
+                potencial_nuevos.append({"conv_id": conv_id, "conv": conv, "msgs": msgs})
+                _time.sleep(0.1)
+
+            if not listos_nuevos and not potencial_nuevos:
+                _notify(f"📋 Reporte TRES65 — {hoy}\n\nSin leads nuevos.")
+                return
+
+            bloques = [f"📋 *Reporte TRES65 — {hoy}*"]
+
+            if listos_nuevos:
+                bloques.append(f"\n✅ *LISTOS PARA ASESOR* ({len(listos_nuevos)})\n")
+                for i, l in enumerate(listos_nuevos, 1):
+                    bloques.append(_format_ficha_completa(l["ficha"] or "(sin ficha)", i))
+
+            if potencial_nuevos:
+                bloques.append(f"\n🟡 *CLIENTES POTENCIALES — ficha incompleta pero hay interés* ({len(potencial_nuevos)})\n")
+                for i, l in enumerate(potencial_nuevos, 1):
+                    bloques.append(_format_potencial(l["conv"], l["msgs"], i))
+
+            # Enviar en chunks si es muy largo (WhatsApp tiene límite ~4096 chars)
+            mensaje_completo = "\n\n".join(bloques)
+            chunk_size = 3800
+            for start in range(0, len(mensaje_completo), chunk_size):
+                _notify(mensaje_completo[start:start + chunk_size])
+                _time.sleep(1)
+
+            # Marcar como reportados
+            if _redis:
+                for l in listos_nuevos:
+                    _redis.set(f"reported_listo:{l['conv_id']}", "1")
+                for l in potencial_nuevos:
+                    _redis.set(f"reported_potencial:{l['conv_id']}", "1")
+
+            print(f"[Reporte] Listo — {len(listos_nuevos)} listos, {len(potencial_nuevos)} potenciales")
         except Exception as e:
             print(f"[Reporte] Error: {e}")
             _notify(f"error generando reporte: {e}")
@@ -357,8 +440,10 @@ scheduler.add_job(cleanup_empty_old_conversations, "cron", hour=22, minute=0,
                   timezone="America/Merida", id="limpieza_vacias_noche")
 scheduler.add_job(cleanup_empty_old_conversations, "cron", hour=12, minute=0,
                   timezone="America/Merida", id="limpieza_vacias_mediodia")
+scheduler.add_job(send_leads_report, "cron", hour=9, minute=0,
+                  timezone="America/Merida", id="reporte_leads_9am")
 scheduler.add_job(send_leads_report, "cron", hour=16, minute=0,
-                  timezone="America/Merida", id="reporte_leads")
+                  timezone="America/Merida", id="reporte_leads_4pm")
 scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
