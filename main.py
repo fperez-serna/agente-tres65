@@ -158,36 +158,36 @@ last_ficha_text = {}                  # última ficha generada por número
 client_data = {}        # datos ya capturados por cliente {intencion, tipo, presupuesto, ciudad}
 
 def delete_spam_conversations():
-    """Borra todas las conversaciones con label 'spam' en Chatwoot. Corre a medianoche Mérida."""
+    """Resuelve todas las conversaciones con label 'spam' en Chatwoot. Corre a medianoche Mérida."""
     if not os.environ.get("CHATWOOT_TOKEN"):
         return
     try:
-        base = chatwoot_base()
+        base    = chatwoot_base()
         headers = _chatwoot_headers()
-        page = 1
-        deleted = 0
+        page    = 1
+        resolved = 0
         while True:
             r = requests.get(f"{base}/conversations",
                              params={"labels[]": "spam", "page": page},
                              headers=headers, timeout=10)
             if not r.ok:
                 break
-            data = r.json()
-            convs = data.get("data", {}).get("payload", [])
+            convs = r.json().get("data", {}).get("payload", [])
             if not convs:
                 break
             for conv in convs:
                 cid = conv.get("id")
-                if cid:
-                    requests.delete(f"{base}/conversations/{cid}",
-                                    headers=headers, timeout=10)
-                    deleted += 1
+                if cid and conv.get("status") != "resolved":
+                    requests.post(f"{base}/conversations/{cid}/toggle_status",
+                                  json={"status": "resolved"},
+                                  headers=headers, timeout=10)
+                    resolved += 1
             if len(convs) < 25:
                 break
             page += 1
-        print(f"[Limpieza] Conversaciones spam borradas: {deleted}")
+        print(f"[Limpieza] Conversaciones spam resueltas: {resolved}")
     except Exception as e:
-        print(f"[Limpieza] Error borrando spam: {e}")
+        print(f"[Limpieza] Error limpiando spam: {e}")
 
 
 def send_leads_report(extra_phone=None):
@@ -1469,6 +1469,66 @@ def classify_message(text: str) -> dict:
     return {"category": category, "confidence": "medium", "source": "openai"}
 
 
+# ── Detector de ortografía ────────────────────────────────────────────────────
+
+try:
+    from spellchecker import SpellChecker as _SpellChecker
+    _spell_es = _SpellChecker(language="es")
+    _SPELL_AVAILABLE = True
+except Exception:
+    _SPELL_AVAILABLE = False
+    print("[Spelling] pyspellchecker no disponible — detector desactivado")
+
+def _spelling_error_ratio(text: str) -> float:
+    """Devuelve la proporción de palabras con error ortográfico (0.0 – 1.0).
+    Ignora números, palabras de 1-2 letras y palabras capitalizadas (nombres)."""
+    if not _SPELL_AVAILABLE or not text:
+        return 0.0
+    tokens = re.findall(r"[a-záéíóúüñA-ZÁÉÍÓÚÜÑ]{3,}", text)
+    # Ignorar palabras que inician con mayúscula (probable nombre propio)
+    tokens = [w for w in tokens if not w[0].isupper()]
+    if len(tokens) < 6:
+        return 0.0
+    words_lower = [w.lower() for w in tokens]
+    misspelled = _spell_es.unknown(words_lower)
+    return len(misspelled) / len(words_lower)
+
+def _maybe_label_sin_potencial(phone_number: str, user_message: str):
+    """Si el cliente acumula >50 % de faltas de ortografía, le pone label sin-potencial."""
+    if not _SPELL_AVAILABLE:
+        return
+    redis_key = f"spelling_checked:{phone_number}"
+    if _redis and _redis.exists(redis_key):
+        return  # ya revisado
+    # Acumular texto del cliente en Redis para tener suficiente muestra
+    acc_key = f"spelling_acc:{phone_number}"
+    if _redis:
+        _redis.append(acc_key, " " + user_message)
+        _redis.expire(acc_key, HISTORY_TTL)
+        accumulated = _redis.get(acc_key) or ""
+    else:
+        accumulated = user_message
+    word_count = len(re.findall(r"[a-záéíóúüñ]{3,}", accumulated.lower()))
+    if word_count < 20:
+        return  # muestra insuficiente, esperar más mensajes
+    ratio = _spelling_error_ratio(accumulated)
+    print(f"[Spelling] {phone_number} ratio={ratio:.2f} ({word_count} palabras)")
+    if _redis:
+        _redis.setex(redis_key, HISTORY_TTL, str(round(ratio, 2)))
+    if ratio >= 0.50:
+        try:
+            datos  = client_data_load(phone_number)
+            c_id   = chatwoot_get_or_create_contact(phone_number, datos)
+            if c_id:
+                conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
+                if conv_id:
+                    chatwoot_ensure_label_exists("sin-potencial", color="#9E9E9E")
+                    chatwoot_add_label(conv_id, "sin-potencial")
+                    print(f"[Spelling] label sin-potencial aplicado a {phone_number} (ratio={ratio:.0%})")
+        except Exception as e:
+            print(f"[Spelling] error aplicando label: {e}")
+
+
 def _split_into_fragments(text):
     """Divide texto en 1-3 fragmentos naturales para WhatsApp."""
     text = text.strip()
@@ -2451,6 +2511,9 @@ def receive_message():
             clf = classify_message(user_message)
             category = clf["category"]
             print(f"[{phone_number}] Clasificación: {clf}")
+
+            # Detector de ortografía — label sin-potencial si >50% errores
+            _maybe_label_sin_potencial(phone_number, user_message)
 
             if category in ("SEXUAL", "INSULT"):
                 _mark_as_spam(phone_number)
