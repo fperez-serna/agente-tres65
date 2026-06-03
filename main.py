@@ -1569,7 +1569,7 @@ def _maybe_label_cliente_potencial(phone_number: str, category: str):
         if c_id:
             conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
             if conv_id:
-                chatwoot_ensure_label_exists("cliente-potencial", color="#1F93FF")
+                chatwoot_ensure_label_exists("cliente-potencial", color="#E4EE85")
                 chatwoot_add_label(conv_id, "cliente-potencial")
                 _redis.setex(f"potencial_ok:{phone_number}", HISTORY_TTL, "1")
                 print(f"[Potencial] label cliente-potencial aplicado a {phone_number} (msg #{count})")
@@ -1735,7 +1735,7 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
             return
         # Garantizar que los labels base existen con sus colores
         chatwoot_ensure_label_exists("listo-para-asesor", color="#00BF6F")  # verde
-        chatwoot_ensure_label_exists("cliente-potencial", color="#1F93FF")  # azul
+        chatwoot_ensure_label_exists("cliente-potencial", color="#E4EE85")
         labels = ["listo-para-asesor"]
         # Etiqueta del anuncio si viene de Meta
         ctx_orig = ad_context.get(phone_number, {})
