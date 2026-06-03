@@ -267,6 +267,30 @@ def send_leads_report(extra_phone=None):
                          headers=headers, timeout=10)
         return r.json().get("payload", []) if r.ok else []
 
+    def _push_to_hubspot(nombre, telefono, correo, notas, origen, etapa):
+        """Envía el lead al formulario de HubSpot. Sin API key — Forms API gratuita."""
+        HS_PORTAL  = "9208240"
+        HS_FORM    = "d7b9b075-45ac-475e-9b61-473a26b4180d"
+        url = f"https://api.hsforms.com/submissions/v3/integration/submit/{HS_PORTAL}/{HS_FORM}"
+        partes = nombre.strip().split() if nombre else []
+        firstname = partes[0] if partes else "Por definir"
+        lastname  = " ".join(partes[1:]) if len(partes) > 1 else ""
+        email_hs = correo if correo and "@" in correo else f"{(telefono or '').lstrip('+').replace(' ','')}@sin-correo.tres65.com"
+        fields = [
+            {"name": "firstname",  "value": firstname},
+            {"name": "lastname",   "value": lastname},
+            {"name": "phone",      "value": telefono or ""},
+            {"name": "email",      "value": email_hs},
+            {"name": "notas_bot",  "value": f"[{etapa}] Origen: {origen}\n\n{notas}"},
+        ]
+        try:
+            r = requests.post(url, json={"fields": fields}, timeout=10)
+            print(f"[HubSpot] {nombre} → {r.status_code}")
+            return r.ok
+        except Exception as e:
+            print(f"[HubSpot] error: {e}")
+            return False
+
     # Prefijos válidos de campos de ficha
     _FICHA_CAMPOS = ("Nombre:", "Teléfono:", "Correo:", "Tipo:", "Uso:", "Presupuesto:",
                      "Zona:", "Viene de:", "Origen:", "Notas:")
@@ -439,12 +463,55 @@ def send_leads_report(extra_phone=None):
                 _notify(mensaje_completo[start:start + chunk_size])
                 _time.sleep(1)
 
-            # Marcar como reportados
+            # Marcar como reportados + push a HubSpot
             if _redis:
                 for l in listos_nuevos:
                     _redis.set(f"reported_listo:{l['conv_id']}", "1")
                 for l in potencial_nuevos:
                     _redis.set(f"reported_potencial:{l['conv_id']}", "1")
+
+            # Push a HubSpot via Forms API (gratuito, sin API key)
+            def _extract_field(lines, prefix):
+                for line in lines:
+                    if line.startswith(prefix):
+                        return line.split(":", 1)[1].strip()
+                return ""
+
+            for l in listos_nuevos:
+                ficha_lines = [ln for ln in l["ficha"].splitlines() if ln.strip()]
+                nombre   = _extract_field(ficha_lines, "Nombre:")
+                telefono = _extract_field(ficha_lines, "Teléfono:")
+                correo   = _extract_field(ficha_lines, "Correo:")
+                origen   = next((lb.replace("ad-","").replace("-"," ").title()
+                                 for lb in l["conv"].get("labels",[]) if lb.startswith("ad-")),
+                                "Link directo")
+                # Mensaje completo: toda la ficha + resumen GPT
+                extras = [ln for ln in ficha_lines
+                          if not any(ln.startswith(p) for p in ("Nombre:","Teléfono:","Correo:"))]
+                resumen_hs = _conv_summary_gpt(l["msgs"], ficha_lines)
+                mensaje_hs = "\n".join(extras) + f"\n\nResumen: {resumen_hs}"
+                _push_to_hubspot(nombre, telefono, correo, mensaje_hs, origen, "Listo para asesor")
+                _time.sleep(0.3)
+
+            for l in potencial_nuevos:
+                meta     = l["conv"].get("meta",{}).get("sender",{})
+                nombre   = meta.get("name","") or "Por definir"
+                telefono = meta.get("phone_number","")
+                correo   = meta.get("email","") or ""
+                origen   = next((lb.replace("ad-","").replace("-"," ").title()
+                                 for lb in l["conv"].get("labels",[]) if lb.startswith("ad-")),
+                                "Link directo")
+                phone_clean = telefono.lstrip("+")
+                datos = client_data_load(phone_clean) if phone_clean else {}
+                extras_pot = []
+                for k, label in [("tipo","Tipo"), ("intencion","Uso"), ("presupuesto","Presupuesto"),
+                                  ("ciudad","Viene de"), ("zona","Zona")]:
+                    if datos.get(k):
+                        extras_pot.append(f"{label}: {datos[k]}")
+                resumen_hs = _conv_summary_gpt(l["msgs"], extras_pot)
+                mensaje_hs = "\n".join(extras_pot) + f"\n\nResumen: {resumen_hs}"
+                _push_to_hubspot(nombre, telefono, correo, mensaje_hs, origen, "Cliente potencial")
+                _time.sleep(0.3)
 
             print(f"[Reporte] Listo — {len(listos_nuevos)} listos, {len(potencial_nuevos)} potenciales")
         except Exception as e:
