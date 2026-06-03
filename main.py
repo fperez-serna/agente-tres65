@@ -190,6 +190,56 @@ def delete_spam_conversations():
         print(f"[Limpieza] Error limpiando spam: {e}")
 
 
+def cleanup_empty_old_conversations():
+    """Resuelve conversaciones sin mensaje de cliente con más de 4 días. Corre a las 10pm Mérida."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        import time as _time
+        base     = chatwoot_base()
+        headers  = _chatwoot_headers()
+        cutoff   = datetime.now() - timedelta(days=4)
+        page     = 1
+        resolved = 0
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"page": page, "status": "open"},
+                             headers=headers, timeout=10)
+            if not r.ok:
+                break
+            convs = r.json().get("data", {}).get("payload", [])
+            if not convs:
+                break
+            for conv in convs:
+                cid = conv.get("id")
+                if not cid:
+                    continue
+                # Verificar antigüedad: created_at viene en segundos epoch
+                created_ts = conv.get("created_at", 0)
+                created_dt = datetime.fromtimestamp(created_ts) if created_ts else datetime.now()
+                if created_dt > cutoff:
+                    continue  # menos de 4 días — no tocar
+                # Revisar si tiene algún mensaje del cliente (message_type 0 = incoming)
+                r2 = requests.get(f"{base}/conversations/{cid}/messages",
+                                  headers=headers, timeout=10)
+                if not r2.ok:
+                    continue
+                msgs = r2.json().get("payload", [])
+                has_client_msg = any(m.get("message_type") == 0 for m in msgs)
+                if not has_client_msg:
+                    requests.post(f"{base}/conversations/{cid}/toggle_status",
+                                  json={"status": "resolved"},
+                                  headers=headers, timeout=10)
+                    resolved += 1
+                _time.sleep(0.15)  # no saturar la API
+            if len(convs) < 25:
+                break
+            page += 1
+        print(f"[Limpieza 10pm] Conversaciones vacías resueltas: {resolved}")
+    except Exception as e:
+        print(f"[Limpieza 10pm] Error: {e}")
+
+
 def send_leads_report(extra_phone=None):
     """Genera y manda por WhatsApp solo los leads nuevos con label cliente-potencial."""
     import threading
@@ -303,6 +353,8 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(check_and_send_24h_followups, "interval", hours=1, id="followup_23h")
 scheduler.add_job(delete_spam_conversations, "cron", hour=0, minute=0,
                   timezone="America/Merida", id="limpieza_spam")
+scheduler.add_job(cleanup_empty_old_conversations, "cron", hour=22, minute=0,
+                  timezone="America/Merida", id="limpieza_vacias")
 scheduler.add_job(send_leads_report, "cron", hour=16, minute=0,
                   timezone="America/Merida", id="reporte_leads")
 scheduler.start()
