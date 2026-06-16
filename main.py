@@ -240,6 +240,92 @@ def cleanup_empty_old_conversations():
         print(f"[Limpieza 10pm] Error: {e}")
 
 
+def cleanup_inactive_2weeks():
+    """Resuelve conversaciones con más de 2 semanas sin actividad que NO tengan
+    los labels listo-para-asesor ni cliente-potencial. Corre cada semana."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        import time as _time
+        base = chatwoot_base()
+        headers = _chatwoot_headers()
+        cutoff = datetime.now() - timedelta(weeks=2)
+        protected = {"listo-para-asesor", "cliente-potencial"}
+        page = 1
+        resolved = 0
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"page": page, "status": "open"},
+                             headers=headers, timeout=10)
+            if not r.ok:
+                break
+            convs = r.json().get("data", {}).get("payload", [])
+            if not convs:
+                break
+            for conv in convs:
+                cid = conv.get("id")
+                if not cid:
+                    continue
+                if set(conv.get("labels", [])) & protected:
+                    continue
+                last_ts = conv.get("last_activity_at") or conv.get("created_at", 0)
+                if last_ts and datetime.fromtimestamp(last_ts) > cutoff:
+                    continue
+                requests.post(f"{base}/conversations/{cid}/toggle_status",
+                              json={"status": "resolved"},
+                              headers=headers, timeout=10)
+                resolved += 1
+                _time.sleep(0.2)
+            if len(convs) < 25:
+                break
+            page += 1
+        print(f"[Limpieza 2sem] Conversaciones resueltas: {resolved}")
+    except Exception as e:
+        print(f"[Limpieza 2sem] Error: {e}")
+
+
+def cleanup_all_unlabeled():
+    """Resuelve TODAS las conversaciones abiertas que NO tengan los labels
+    listo-para-asesor ni cliente-potencial. Se activa con el keyword cleanup365."""
+    if not os.environ.get("CHATWOOT_TOKEN"):
+        return
+    try:
+        import time as _time
+        base = chatwoot_base()
+        headers = _chatwoot_headers()
+        protected = {"listo-para-asesor", "cliente-potencial"}
+        page = 1
+        resolved = 0
+        while True:
+            r = requests.get(f"{base}/conversations",
+                             params={"page": page, "status": "open"},
+                             headers=headers, timeout=10)
+            if not r.ok:
+                break
+            convs = r.json().get("data", {}).get("payload", [])
+            if not convs:
+                break
+            for conv in convs:
+                cid = conv.get("id")
+                if not cid:
+                    continue
+                if set(conv.get("labels", [])) & protected:
+                    continue
+                requests.post(f"{base}/conversations/{cid}/toggle_status",
+                              json={"status": "resolved"},
+                              headers=headers, timeout=10)
+                resolved += 1
+                _time.sleep(0.2)
+            if len(convs) < 25:
+                break
+            page += 1
+        print(f"[Limpieza masiva] Conversaciones resueltas: {resolved}")
+        return resolved
+    except Exception as e:
+        print(f"[Limpieza masiva] Error: {e}")
+        return 0
+
+
 def send_leads_report(extra_phone=None):
     """Reporte con dos secciones: listos para asesor y clientes potenciales. Corre a las 9am y 4pm."""
     import threading
@@ -533,6 +619,8 @@ scheduler.add_job(send_leads_report, "cron", hour=9, minute=0,
                   timezone="America/Merida", id="reporte_leads_9am")
 scheduler.add_job(send_leads_report, "cron", hour=16, minute=0,
                   timezone="America/Merida", id="reporte_leads_4pm")
+scheduler.add_job(cleanup_inactive_2weeks, "cron", day_of_week="mon", hour=3, minute=0,
+                  timezone="America/Merida", id="limpieza_2semanas")
 scheduler.start()
 
 CALENDLY_URL = "https://calendly.com/contacto-tres65inmobiliaria/30min"
@@ -1253,7 +1341,7 @@ def parse_lead_ad_message(phone_number, text):
                 datos["correo"] = val.strip().lower()
         elif "city" in raw_key.lower() or "ciudad" in key:
             datos["ciudad"] = val.strip()
-        elif "presupuesto" in key or "inversión" in key and "$" in val:
+        elif ("presupuesto" in key or "inversión" in key) and "$" in val:
             val_low = val.lower()
             for k, mapped in presupuesto_map.items():
                 if k in val_low:
@@ -2314,7 +2402,7 @@ def send_followup(phone_number):
         delay = (manana_9am - ahora).total_seconds()
         job_id = f"followup_{phone_number}"
         scheduler.add_job(send_followup, "date",
-                          run_date=datetime.now() + timedelta(seconds=delay),
+                          run_date=datetime.now(merida_tz) + timedelta(seconds=delay),
                           args=[phone_number], id=job_id + "_retry",
                           replace_existing=True)
         print(f"[{phone_number}] Follow-up diferido a las 9am Mérida")
@@ -2338,7 +2426,9 @@ def schedule_followup(phone_number):
         return
     cancel_followup(phone_number)
     job_id = f"followup_{phone_number}"
-    run_time = datetime.now() + timedelta(hours=4)
+    from datetime import timezone as _tz
+    _merida_tz = _tz(timedelta(hours=-6))
+    run_time = datetime.now(_merida_tz) + timedelta(hours=4)
     scheduler.add_job(send_followup, "date", run_date=run_time, args=[phone_number], id=job_id)
     follow_up_jobs[phone_number] = job_id
     print(f"[{phone_number}] Follow-up programado: {run_time}")
@@ -2367,6 +2457,8 @@ def auto_confirm_ficha(phone_number):
         "como no recibí confirmación, tomé nota de tu información y la pasé a un asesor. "
         "En cuanto pueda te contactará. Si algo está mal, aquí seguimos.")
     send_whatsapp_contact_buttons(phone_number)
+    if _redis:
+        _redis.delete(f"autoconfirm_lock:{phone_number}")
 
 
 def schedule_ficha_autoconfirm(phone_number):
@@ -2375,7 +2467,9 @@ def schedule_ficha_autoconfirm(phone_number):
         scheduler.remove_job(job_id)
     except Exception:
         pass
-    run_time = datetime.now() + timedelta(hours=2)
+    from datetime import timezone as _tz
+    _merida_tz = _tz(timedelta(hours=-6))
+    run_time = datetime.now(_merida_tz) + timedelta(hours=2)
     scheduler.add_job(auto_confirm_ficha, "date", run_date=run_time, args=[phone_number], id=job_id)
     if _redis:
         _redis.setex(f"ficha_pendiente:{phone_number}", 3 * 3600, "1")
@@ -2385,6 +2479,8 @@ def schedule_ficha_autoconfirm(phone_number):
 @app.route("/chatwoot-webhook", methods=["POST"])
 def chatwoot_webhook():
     data = request.json
+    if data is None:
+        return "OK", 200
     try:
         event = data.get("event")
         if event != "message_created":
@@ -2462,6 +2558,8 @@ def verify_webhook():
 @app.route("/webhook", methods=["POST"])
 def receive_message():
     data = request.json
+    if data is None:
+        return "OK", 200
     lock_acquired = False
     lock_key = ""
 
@@ -2960,6 +3058,15 @@ def receive_message():
                 send_leads_report(extra_phone=phone_number)
                 return "OK", 200
 
+            if user_message.strip().lower() == "cleanup365":
+                send_whatsapp_message(phone_number, "iniciando limpieza masiva de conversaciones, un momento...")
+                import threading
+                def _do_cleanup():
+                    n = cleanup_all_unlabeled()
+                    send_whatsapp_message(phone_number, f"limpieza completa. conversaciones resueltas: {n}")
+                threading.Thread(target=_do_cleanup, daemon=True).start()
+                return "OK", 200
+
             if user_message.strip().lower() == "reporte_redis365":
                 send_whatsapp_message(phone_number, "generando reporte desde redis, un momento...")
                 import threading
@@ -3215,14 +3322,20 @@ def receive_message():
 
             # Guardar apellido — SIN pasar por GPT
             elif phone_number in waiting_for_apellido:
-                waiting_for_apellido.discard(phone_number)
-                existing = client_data.get(phone_number, {}).get("nombre_completo", "") or get_nombre_redis(phone_number)
-                full_name = f"{existing} {user_message.strip().title()}".strip()
-                client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
-                save_nombre_redis(phone_number, full_name)
-                client_data_save(phone_number)
-                chatwoot_update_contact_name(phone_number, full_name)
-                _send_paso2(phone_number, full_name.split()[0], user_message)
+                apellido_raw = user_message.strip().strip(".,!?¿¡\"'")
+                apellido_norm = _normalize_text(apellido_raw)
+                if apellido_norm and apellido_norm.isalpha() and apellido_norm not in NAME_BLACKLIST:
+                    waiting_for_apellido.discard(phone_number)
+                    existing = client_data.get(phone_number, {}).get("nombre_completo", "") or get_nombre_redis(phone_number)
+                    full_name = f"{existing} {apellido_raw.title()}".strip()
+                    client_data.setdefault(phone_number, {})["nombre_completo"] = full_name
+                    save_nombre_redis(phone_number, full_name)
+                    client_data_save(phone_number)
+                    chatwoot_update_contact_name(phone_number, full_name)
+                    _send_paso2(phone_number, full_name.split()[0], user_message)
+                    return "OK", 200
+                # Entrada inválida — pedir de nuevo sin consumir el flag
+                send_whatsapp_message(phone_number, "no pude capturar tu apellido, me lo puedes repetir?")
                 return "OK", 200
 
             if phone_number in waiting_for_ciudad:
@@ -3490,7 +3603,11 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
             # --- Step 2: process CONFIRMAR_FICHA first (before sending text, to avoid duplicate) ---
             if "CONFIRMAR_FICHA" in reply_text:
-                ficha_text = text_part  # the cleaned text IS the ficha body
+                _FICHA_PREFIJOS = ("Nombre:", "Teléfono:", "Correo:", "Tipo:", "Uso:",
+                                   "Presupuesto:", "Zona:", "Viene de:", "Origen:", "Notas:")
+                ficha_lines = [l.strip() for l in text_part.splitlines()
+                               if any(l.strip().startswith(p) for p in _FICHA_PREFIJOS)]
+                ficha_text = "\n".join(ficha_lines) if ficha_lines else text_part
                 last_ficha_text[phone_number] = ficha_text
                 if _redis:
                     _redis.setex(f"ficha:{phone_number}", HISTORY_TTL, ficha_text)
