@@ -3300,7 +3300,8 @@ def _process_message(data):
             elif phone_number in waiting_for_apellido:
                 apellido_raw = user_message.strip().strip(".,!?¿¡\"'")
                 apellido_norm = _normalize_text(apellido_raw)
-                if apellido_norm and apellido_norm.isalpha() and apellido_norm not in NAME_BLACKLIST:
+                _es_pregunta_prop = "?" in user_message or len(user_message.split()) > 4
+                if not _es_pregunta_prop and apellido_norm and apellido_norm.replace(" ", "").isalpha() and apellido_norm not in NAME_BLACKLIST:
                     waiting_for_apellido.discard(phone_number)
                     existing = client_data.get(phone_number, {}).get("nombre_completo", "") or get_nombre_redis(phone_number)
                     full_name = f"{existing} {apellido_raw.title()}".strip()
@@ -3310,9 +3311,13 @@ def _process_message(data):
                     chatwoot_update_contact_name(phone_number, full_name)
                     _send_paso2(phone_number, full_name.split()[0], user_message)
                     return
-                # Entrada inválida — pedir de nuevo sin consumir el flag
-                send_whatsapp_message(phone_number, "no pude capturar tu apellido, me lo puedes repetir?")
-                return
+                # Si parece una pregunta sobre la propiedad, pasar a GPT con el flag activo
+                # GPT responderá la pregunta y también pedirá el apellido de forma natural
+                if _es_pregunta_prop:
+                    pass  # cae al flujo de GPT con waiting_for_apellido aún activo
+                else:
+                    send_whatsapp_message(phone_number, "no pude capturar tu apellido, me lo puedes repetir?")
+                    return
 
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
@@ -3525,6 +3530,9 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         if phone_number in waiting_for_ficha_correction:
             system += "\n\nEl cliente acaba de corregir un dato de su ficha. Actualiza el dato, regenera la ficha completa con el formato del PASO 7 y agrega CONFIRMAR_FICHA al final."
+
+        if phone_number in waiting_for_apellido:
+            system += "\n\nIMPORTANTE: Aún no tienes el apellido del cliente. Responde primero lo que preguntó, luego al final de tu mensaje pide su apellido de forma natural en una sola línea corta."
 
         response = openai.chat.completions.create(
             model="gpt-4o-mini",
