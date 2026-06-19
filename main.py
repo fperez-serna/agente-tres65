@@ -2555,11 +2555,9 @@ def verify_webhook():
     return "Forbidden", 403
 
 
-@app.route("/webhook", methods=["POST"])
-def receive_message():
-    data = request.json
-    if data is None:
-        return "OK", 200
+def _process_message(data):
+    """Procesa el webhook completo en un hilo secundario.
+    receive_message ya validó idempotencia, spam y unspam365 antes de llamar aquí."""
     lock_acquired = False
     lock_key = ""
 
@@ -2567,33 +2565,11 @@ def receive_message():
         entry = data["entry"][0]["changes"][0]["value"]
         messages = entry.get("messages", [])
         if not messages:
-            return "OK", 200
+            return
 
         message = messages[0]
         phone_number = message["from"]
         msg_type = message.get("type", "text")
-
-        # ── Idempotency: ignorar mensajes ya procesados (Meta reintenta webhooks) ──
-        msg_id = message.get("id", "")
-        if msg_id and _redis:
-            if _redis.exists(f"msg_seen:{msg_id}"):
-                print(f"[{phone_number}] Mensaje duplicado ignorado: {msg_id}")
-                return "OK", 200
-            _redis.setex(f"msg_seen:{msg_id}", 86400, "1")  # 24h — Meta reintenta hasta 24h
-
-        # ── Comando unspam365: desbloquea número antes del check de spam ──
-        _raw_body = message.get("text", {}).get("body", "").strip().lower()
-        if _raw_body == "unspam365" and _redis:
-            _redis.delete(f"spam:{phone_number}")
-            _redis.delete(f"romantic_warned:{phone_number}")
-            reset_conversation(phone_number)
-            send_whatsapp_message(phone_number, "Número desbloqueado. Conversación reiniciada 👋")
-            return "OK", 200
-
-        # ── Spam: ignorar permanentemente antes de cualquier sync a Chatwoot ──
-        if _redis and _redis.exists(f"spam:{phone_number}"):
-            print(f"[{phone_number}] Número spam — ignorado silenciosamente")
-            return "OK", 200
 
         # ── Lock por teléfono: evita race conditions cuando llegan mensajes rápido ──
         lock_key = f"lock:{phone_number}"
@@ -2606,9 +2582,9 @@ def receive_message():
                 for _ in range(10):
                     time.sleep(0.5)
                     if not _redis.exists(lock_key):
-                        _redis.set(lock_key, "1", nx=True, ex=30)
-                        lock_acquired = True
-                        break
+                        lock_acquired = bool(_redis.set(lock_key, "1", nx=True, ex=30))
+                        if lock_acquired:
+                            break
                 if not lock_acquired:
                     print(f"[{phone_number}] Lock timeout — procesando de todos modos")
 
@@ -2717,7 +2693,7 @@ def receive_message():
         if phone_number in waiting_for_supplier_info and msg_type == "interactive":
             reset_conversation(phone_number)
             send_whatsapp_message(phone_number, "con gusto te ayudo. con quién tengo el gusto? (nombre completo por favor)")
-            return "OK", 200
+            return
 
         if msg_type == "interactive":
             interactive_type = message["interactive"].get("type")
@@ -2741,7 +2717,7 @@ def receive_message():
                     send_whatsapp_message(phone_number, "anotado!")
                     chatwoot_sync_bot(phone_number, "anotado!")
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
                 elif list_id == "presup_asesor":
                     client_data[phone_number]["presupuesto"] = "Lo platica con el asesor"
                     client_data_save(phone_number)
@@ -2770,35 +2746,35 @@ def receive_message():
                         send_whatsapp_message(phone_number, "Qué gusto! Retomemos. Para pasarte con el asesor ideal, solo necesito completar tu ficha.")
                         send_whatsapp_message(phone_number, "¿Cuál es tu nombre? (completo por favor)")
                         waiting_for_name.add(phone_number)
-                    return "OK", 200
+                    return
 
                 if button_id == "ver_catalogo":
                     _send_cta_url(phone_number, "Aquí tienes nuestro catálogo completo:", "Ver propiedades", VENTAS_URL)
-                    return "OK", 200
+                    return
 
                 if button_id == "catalogo_ventas":
                     _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en venta:", "Ver propiedades en venta", VENTAS_URL)
-                    return "OK", 200
+                    return
 
                 if button_id == "catalogo_rentas":
                     _send_cta_url(phone_number, "Aquí están todas nuestras propiedades en renta:", "Ver propiedades en renta", RENTAS_URL)
-                    return "OK", 200
+                    return
 
                 if button_id == "no_listo":
                     send_whatsapp_message(phone_number, "Sin presión, aquí voy a estar cuando estés lista o listo.")
-                    return "OK", 200
+                    return
 
                 if "catálogo" in btn_lower or "catalogo" in btn_lower or "propiedad" in btn_lower:
                     _send_interactive_buttons(phone_number, "¿Qué te interesa ver?", [
                         {"id": "catalogo_ventas", "title": "En venta"},
                         {"id": "catalogo_rentas", "title": "En renta"}
                     ])
-                    return "OK", 200
+                    return
 
                 if "tiempo" in btn_lower or "después" in btn_lower or "despues" in btn_lower:
                     # Necesito más tiempo
                     send_whatsapp_message(phone_number, "es completamente normal, el mercado inmobiliario puede ser saturador. aquí voy a estar cuando estés lista o listo, sin presión.")
-                    return "OK", 200
+                    return
 
                 if button_id == "ficha_correcta":
                     ficha_confirmada.add(phone_number)
@@ -2813,41 +2789,41 @@ def receive_message():
                     chatwoot_mark_qualified(phone_number, ficha_txt)
                     send_whatsapp_message(phone_number, "listo, ya tengo todo. un asesor estará en contacto contigo pronto.")
                     send_whatsapp_contact_buttons(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id == "ficha_incorrecta":
                     waiting_for_ficha_correction.add(phone_number)
                     ficha_confirmada.discard(phone_number)  # clear confirmed flag so ficha can be re-confirmed
                     send_whatsapp_message(phone_number, "dime qué dato está mal y lo corrijo ahora mismo")
-                    return "OK", 200
+                    return
 
                 elif button_id == "agendar_llamada":
                     send_whatsapp_calendly_button(phone_number)
                     schedule_followup(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id == "por_whatsapp":
                     send_whatsapp_message(
                         phone_number,
                         "en breve te escribe uno de nuestros asesores expertos. fue un gusto platicar contigo"
                     )
-                    return "OK", 200
+                    return
 
                 elif button_id == "agendar_asesor":
                     send_whatsapp_calendly_button(phone_number)
                     schedule_followup(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id == "tengo_duda":
                     send_whatsapp_message(phone_number, "cuéntame, en qué te puedo ayudar?")
-                    return "OK", 200
+                    return
 
                 # Botones de decisión — guardar dato
                 client_data.setdefault(phone_number, {})
                 if button_id == "algo_mas":
                     algo_mas_mode.add(phone_number)
                     send_whatsapp_message(phone_number, "con gusto te ayudo. cuéntame, qué estás buscando?")
-                    return "OK", 200
+                    return
 
                 if button_id == "para_vivir":
                     client_data[phone_number]["intencion"] = button_title
@@ -2857,39 +2833,39 @@ def receive_message():
                     history.append({"role": "assistant", "content": "para vivir, perfecto. cuánto tienes en mente de presupuesto?"})
                     advance_flow(phone_number)
                     history_set(phone_number, history[-20:])
-                    return "OK", 200
+                    return
 
                 elif button_id == "para_invertir":
                     client_data[phone_number]["intencion"] = button_title
-                    client_data[phone_number]["tipo"] = "Compra"
+                    client_data[phone_number]["tipo"] = "Comprar"
                     client_data_save(phone_number)
                     send_whatsapp_message(phone_number, "qué bien, buscas comprar una propiedad como inversión. qué tipo de inversión tienes en mente?")
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id == "uso_comercial":
                     client_data[phone_number]["uso_suelo"] = "Comercial"
                     client_data_save(phone_number)
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id == "uso_habitacional":
                     client_data[phone_number]["uso_suelo"] = "Habitacional"
                     client_data_save(phone_number)
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id in ("largo_plazo", "corto_plazo"):
                     client_data[phone_number]["plazo_renta"] = button_title
                     client_data_save(phone_number)
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id in ("conoce_merida", "necesita_orientacion"):
                     client_data[phone_number]["conoce_merida"] = button_title
                     client_data_save(phone_number)
                     advance_flow(phone_number)
-                    return "OK", 200
+                    return
 
                 elif button_id in ("comprar", "rentar"):
                     client_data[phone_number]["tipo"] = button_title
@@ -2897,7 +2873,7 @@ def receive_message():
                     send_whatsapp_budget_list(phone_number, button_id)
                     tipo_label = "renta" if button_id == "rentar" else "compra"
                     chatwoot_sync_bot(phone_number, f"Ya tienes un rango de {tipo_label} en mente? [Lista de presupuestos]")
-                    return "OK", 200
+                    return
 
                 client_data_save(phone_number)
                 user_message = button_title
@@ -2929,7 +2905,7 @@ def receive_message():
                 except Exception as e:
                     print(f"Error transcribiendo audio: {e}")
                     send_whatsapp_message(phone_number, "no pude escuchar bien el audio, puedes escribirlo?")
-                    return "OK", 200
+                    return
             else:
                 user_message = message["text"]["body"]
 
@@ -2946,13 +2922,13 @@ def receive_message():
 
             if category in ("SEXUAL", "INSULT"):
                 _mark_as_spam(phone_number)
-                return "OK", 200
+                return
 
             if category == "ROMANTIC":
                 if _redis and _redis.exists(f"romantic_warned:{phone_number}"):
                     # Segunda vez — bloqueo permanente
                     _mark_as_spam(phone_number)
-                    return "OK", 200
+                    return
                 # Primera vez — María redirige y se anota en Chatwoot
                 if _redis:
                     _redis.setex(f"romantic_warned:{phone_number}", 7 * 24 * 3600, "1")
@@ -2961,7 +2937,7 @@ def receive_message():
                     "así que mi enfoque es ayudarte a encontrar tu propiedad ideal. "
                     "¿En qué te puedo ayudar hoy?")
                 _add_offtopic_note(phone_number, "ROMANTIC")
-                return "OK", 200
+                return
 
             if category == "PERSONAL_QUESTION":
                 send_whatsapp_message(phone_number,
@@ -2969,7 +2945,7 @@ def receive_message():
                     "Voy a finalizar esta conversación. Si en algún momento quieres buscar una propiedad, con gusto te ayudo.")
                 _add_offtopic_note(phone_number, "PERSONAL_QUESTION")
                 _mark_as_spam(phone_number)
-                return "OK", 200
+                return
 
             # Detectar propiedad — en cualquier mensaje si aún no hay contexto de propiedad cargado
             is_first_message = not history_exists(phone_number)
@@ -3008,7 +2984,7 @@ def receive_message():
                     update_last_activity(phone_number)
                     waiting_for_name.add(phone_number)
                     schedule_followup(phone_number)
-                    return "OK", 200
+                    return
                 # Mensaje rico o mensaje posterior → intentar extraer nombre y dejar que GPT continúe
                 if not client_data.get(phone_number, {}).get("nombre_completo"):
                     _nombre_detectado = _gpt_extract_name(user_message)
@@ -3031,7 +3007,7 @@ def receive_message():
                 else:
                     send_whatsapp_message(phone_number, "Gracias por tu interés. Con quién tengo el gusto? (nombre completo)")
                     waiting_for_name.add(phone_number)
-                return "OK", 200
+                return
 
             # Palabras clave secretas — prioridad ABSOLUTA, incluso sobre agente activo
             if user_message.strip().lower() == "reset365":
@@ -3041,22 +3017,22 @@ def receive_message():
                     _redis.delete(f"cw_conv:{phone_number}")
                 chatwoot_update_contact_name(phone_number, phone_number)
                 send_whatsapp_message(phone_number, "Conversación reiniciada 👋")
-                return "OK", 200
+                return
 
             if user_message.strip().lower() == "nextday365":
                 send_followup(phone_number)
-                return "OK", 200
+                return
 
             if user_message.strip().lower() == "test_followup365":
                 nombre_completo = get_nombre_redis(phone_number) or client_data.get(phone_number, {}).get("nombre_completo", "")
                 name = nombre_completo.split()[0] if nombre_completo else "amigo"
                 send_followup_template(phone_number, name)
-                return "OK", 200
+                return
 
             if user_message.strip().lower() == "reporte365":
                 send_whatsapp_message(phone_number, "generando reporte, un momento...")
                 send_leads_report(extra_phone=phone_number)
-                return "OK", 200
+                return
 
             if user_message.strip().lower() == "cleanup365":
                 send_whatsapp_message(phone_number, "iniciando limpieza masiva de conversaciones, un momento...")
@@ -3065,7 +3041,7 @@ def receive_message():
                     n = cleanup_all_unlabeled()
                     send_whatsapp_message(phone_number, f"limpieza completa. conversaciones resueltas: {n}")
                 threading.Thread(target=_do_cleanup, daemon=True).start()
-                return "OK", 200
+                return
 
             if user_message.strip().lower() == "reporte_redis365":
                 send_whatsapp_message(phone_number, "generando reporte desde redis, un momento...")
@@ -3118,12 +3094,12 @@ def receive_message():
                     except Exception as e:
                         send_whatsapp_message(phone_number, f"error reporte redis: {e}")
                 threading.Thread(target=_redis_report, daemon=True).start()
-                return "OK", 200
+                return
 
             # Si agente humano está activo, bot pausado (pero reset365 ya pasó)
             if _redis and _redis.exists(f"agent_active:{phone_number}"):
                 print(f"[{phone_number}] Agente activo — bot pausado")
-                return "OK", 200
+                return
 
             # ── PASO 0: Extraer entidades y reconciliar estados ANTES de cualquier check ──
             extract_entities(phone_number, user_message)
@@ -3148,7 +3124,7 @@ def receive_message():
                         conv_id_sup = chatwoot_get_or_create_conversation(phone_number, c_id_sup)
                         if conv_id_sup:
                             chatwoot_resolve_conversation(conv_id_sup)
-                return "OK", 200
+                return
 
             if phone_number in waiting_for_asesor_topic:
                 waiting_for_asesor_topic.discard(phone_number)
@@ -3156,7 +3132,7 @@ def receive_message():
                 client_data.setdefault(phone_number, {})["asesor_topic"] = user_message
                 client_data_save(phone_number)
                 send_whatsapp_contact_buttons(phone_number)
-                return "OK", 200
+                return
 
             reclutamiento_keywords = ["busco trabajo", "quiero trabajar", "me interesa trabajar",
                                        "aplicar", "vacante", "puesto", "empleo", "curriculum", "cv",
@@ -3188,7 +3164,7 @@ def receive_message():
                 )
                 send_whatsapp_message(phone_number, SUPPLIER_MSG)
                 waiting_for_supplier_info.add(phone_number)
-                return "OK", 200
+                return
 
             # Capturar contexto del anuncio solo en el primer mensaje
             if phone_number not in ad_context:
@@ -3216,7 +3192,7 @@ def receive_message():
             if _in_pending:
                 send_whatsapp_message(phone_number, "solo dime, como prefieres que te contacte el asesor?")
                 send_whatsapp_contact_buttons(phone_number)
-                return "OK", 200
+                return
 
             # Saludo en conversación existente
             saludos = {"hola", "hello", "hey", "buenas", "buenos días", "buenos dias",
@@ -3227,7 +3203,7 @@ def receive_message():
                 greeting = f"hola {name}, cómo te puedo ayudar?" if name else "hola, cómo te puedo ayudar?"
                 send_whatsapp_message(phone_number, greeting)
                 chatwoot_sync_bot(phone_number, greeting)
-                return "OK", 200
+                return
 
             if phone_number in waiting_for_ficha_correction:
                 waiting_for_ficha_correction.discard(phone_number)
@@ -3246,7 +3222,7 @@ def receive_message():
                     "¿Le damos una oportunidad?"
                 )
                 send_whatsapp_message(phone_number, MSG_BOT)
-                return "OK", 200
+                return
 
 
             # Detectar negaciones en momentos clave
@@ -3259,7 +3235,7 @@ def receive_message():
                     "A los asesores les ayuda mucho tener la ficha completa, ya que las fichas listas suelen revisarse con un poco más de prioridad. "
                     "Pero no pasa nada si aún hay cosas por definir, podemos avanzar con lo básico.")
                 advance_flow(phone_number)
-                return "OK", 200
+                return
 
             # Captura de nombre después del saludo — SIN pasar por GPT
             if phone_number in waiting_for_name:
@@ -3276,7 +3252,7 @@ def receive_message():
                         client_data_save(phone_number)
                         chatwoot_update_contact_name(phone_number, full_name)
                         _send_paso2(phone_number, _nombre_actual, user_message)
-                        return "OK", 200
+                        return
 
                 es_pregunta = "?" in user_message or any(k in user_message.lower() for k in [
                     "renta", "venta", "precio", "costo", "cuánto", "cuanto", "cuartos",
@@ -3313,7 +3289,7 @@ def receive_message():
                             chatwoot_sync_bot(phone_number, "y tu apellido?")
                         else:
                             _send_paso2(phone_number, name_parts[0], user_message)
-                        return "OK", 200
+                        return
                     # GPT no encontró nombre → flag sigue activo, GPT lo pide en siguiente turno
                 else:
                     # Mensaje largo — entidades extraídas en PASO 0, GPT continúa
@@ -3333,10 +3309,10 @@ def receive_message():
                     client_data_save(phone_number)
                     chatwoot_update_contact_name(phone_number, full_name)
                     _send_paso2(phone_number, full_name.split()[0], user_message)
-                    return "OK", 200
+                    return
                 # Entrada inválida — pedir de nuevo sin consumir el flag
                 send_whatsapp_message(phone_number, "no pude capturar tu apellido, me lo puedes repetir?")
-                return "OK", 200
+                return
 
             if phone_number in waiting_for_ciudad:
                 if client_data.get(phone_number, {}).get("intencion") == "Para invertir":
@@ -3363,10 +3339,10 @@ def receive_message():
                     waiting_for_email.discard(phone_number)
                 else:
                     send_whatsapp_message(phone_number, "ese correo no parece válido, me lo puedes compartir de nuevo? por ejemplo: nombre@gmail.com")
-                    return "OK", 200
+                    return
 
         else:
-            return "OK", 200
+            return
 
         # Pausa de lectura — mínimo 10s, crece con el largo del mensaje
         import time, random
@@ -3399,7 +3375,7 @@ def receive_message():
             update_last_activity(phone_number)
             waiting_for_name.add(phone_number)
             schedule_followup(phone_number)
-            return "OK", 200
+            return
 
         from datetime import timezone, timedelta
         merida_tz = timezone(timedelta(hours=-6))
@@ -3552,7 +3528,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
 
         response = openai.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": system}] + history
+            messages=[{"role": "system", "content": system}] + history,
+            max_tokens=600,
         )
 
         reply = response.choices[0].message.content
@@ -3656,7 +3633,12 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
                 _redis.setex(f"cw_nombre_ok:{phone_number}", HISTORY_TTL, "1")
 
         # Sincronizar respuesta de María como nota privada (visible en Chatwoot, no llega al cliente)
-        chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
+        # Si había CONFIRMAR_FICHA, sincronizar la ficha real que recibió el cliente
+        if "CONFIRMAR_FICHA" in reply:
+            _ficha_sync = last_ficha_text.get(phone_number, reply_clean)
+            chatwoot_sync_message(phone_number, f"🤖 [Ficha enviada al cliente]\n{_ficha_sync}", "outgoing", private=True)
+        else:
+            chatwoot_sync_message(phone_number, f"🤖 {reply_clean}", "outgoing", private=True)
 
         if not client_data.get(phone_number, {}).get("nombre_completo") and len(history) <= 8:
             waiting_for_name.add(phone_number)
@@ -3672,6 +3654,49 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
     finally:
         if _redis and lock_acquired:
             _redis.delete(lock_key)
+
+
+@app.route("/webhook", methods=["POST"])
+def receive_message():
+    """Devuelve 200 a Meta de inmediato y procesa el mensaje en un hilo secundario."""
+    import threading
+    data = request.json
+    if data is None:
+        return "OK", 200
+    try:
+        entry = data["entry"][0]["changes"][0]["value"]
+        messages = entry.get("messages", [])
+        if not messages:
+            return "OK", 200
+
+        message = messages[0]
+        phone_number = message["from"]
+        msg_id = message.get("id", "")
+
+        # Idempotencia: verificar ANTES de lanzar el hilo para bloquear reintentos de Meta
+        if msg_id and _redis:
+            if _redis.exists(f"msg_seen:{msg_id}"):
+                print(f"[{phone_number}] Mensaje duplicado ignorado: {msg_id}")
+                return "OK", 200
+            _redis.setex(f"msg_seen:{msg_id}", 86400, "1")
+
+        # Unspam: manejo síncrono (rápido, no bloquea)
+        _raw_body = message.get("text", {}).get("body", "").strip().lower()
+        if _raw_body == "unspam365" and _redis:
+            _redis.delete(f"spam:{phone_number}")
+            _redis.delete(f"romantic_warned:{phone_number}")
+            reset_conversation(phone_number)
+            send_whatsapp_message(phone_number, "Número desbloqueado. Conversación reiniciada 👋")
+            return "OK", 200
+
+        # Spam: bloquear antes de lanzar hilo
+        if _redis and _redis.exists(f"spam:{phone_number}"):
+            return "OK", 200
+
+        threading.Thread(target=_process_message, args=(data,), daemon=True).start()
+
+    except Exception as e:
+        print(f"Error recibiendo webhook: {e}")
 
     return "OK", 200
 
