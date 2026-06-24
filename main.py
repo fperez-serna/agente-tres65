@@ -1981,7 +1981,9 @@ def _send_humanized(phone_number, text):
 
 
 def _mark_as_spam(phone_number):
-    """Marca número como spam permanentemente, aplica label rojo y resuelve en Chatwoot."""
+    """Marca número como spam permanentemente, aplica label rojo y resuelve en Chatwoot.
+    Elimina cualquier label de calificación (cliente-potencial, listo-para-asesor) para
+    que la conversación no aparezca en reportes ni se envíe a HubSpot."""
     if _redis:
         _redis.set(f"spam:{phone_number}", "1")
     try:
@@ -1991,7 +1993,18 @@ def _mark_as_spam(phone_number):
         if c_id:
             conv_id = chatwoot_get_or_create_conversation(phone_number, c_id)
             if conv_id:
-                chatwoot_add_label(conv_id, "spam")
+                # Leer labels actuales y quedarse solo con el de origen del anuncio
+                base = chatwoot_base()
+                r = requests.get(f"{base}/conversations/{conv_id}/labels",
+                                 headers=_chatwoot_headers(), timeout=5)
+                existing = r.json().get("payload", []) if r.ok else []
+                _LABELS_CALIFICACION = {"cliente-potencial", "listo-para-asesor", "sin-potencial"}
+                labels_limpios = [l for l in existing
+                                  if l not in _LABELS_CALIFICACION and l != "spam"]
+                labels_limpios.append("spam")
+                requests.post(f"{base}/conversations/{conv_id}/labels",
+                              json={"labels": labels_limpios},
+                              headers=_chatwoot_headers(), timeout=5)
                 chatwoot_resolve_conversation(conv_id)
     except Exception as e:
         print(f"[Spam] Error aplicando label: {e}")
@@ -2923,9 +2936,6 @@ def _process_message(data):
             # Detector de ortografía — label sin-potencial si >50% errores
             _maybe_label_sin_potencial(phone_number, user_message)
 
-            # Contador de engagement — label cliente-potencial al 4º mensaje relevante
-            _maybe_label_cliente_potencial(phone_number, category)
-
             if category in ("SEXUAL", "INSULT"):
                 _mark_as_spam(phone_number)
                 return
@@ -2946,12 +2956,20 @@ def _process_message(data):
                 return
 
             if category == "PERSONAL_QUESTION":
+                if _redis and _redis.exists(f"personal_warned:{phone_number}"):
+                    # Segunda vez — bloqueo permanente
+                    _mark_as_spam(phone_number)
+                    return
+                if _redis:
+                    _redis.setex(f"personal_warned:{phone_number}", 7 * 24 * 3600, "1")
                 send_whatsapp_message(phone_number,
-                    "Soy un asistente virtual y detecto que tus mensajes no tienen relación con el tema inmobiliario. "
-                    "Voy a finalizar esta conversación. Si en algún momento quieres buscar una propiedad, con gusto te ayudo.")
+                    "Soy un asistente virtual enfocado en ayudarte con tu búsqueda inmobiliaria. "
+                    "¿En qué te puedo ayudar hoy?")
                 _add_offtopic_note(phone_number, "PERSONAL_QUESTION")
-                _mark_as_spam(phone_number)
                 return
+
+            # Contador de engagement — solo si el mensaje es legítimo (no spam/insulto)
+            _maybe_label_cliente_potencial(phone_number, category)
 
             # Detectar propiedad — en cualquier mensaje si aún no hay contexto de propiedad cargado
             is_first_message = not history_exists(phone_number)
