@@ -500,11 +500,15 @@ def send_leads_report(extra_phone=None):
             headers = _chatwoot_headers()
             hoy     = datetime.now(timezone(timedelta(hours=-6))).strftime("%d %b %Y, %I:%M %p")
 
+            _LABELS_EXCLUIDOS = {"spam", "sin-potencial"}
+
             # ── SECCIÓN 1: LISTOS PARA ASESOR ─────────────────────────────
             listos_convs = _get_convs_by_label(base, headers, "listo-para-asesor")
             listos_nuevos = []
             for conv in listos_convs:
                 conv_id = str(conv.get("id", ""))
+                if set(conv.get("labels", [])) & _LABELS_EXCLUIDOS:
+                    continue  # spam o sin potencial — no reportar
                 if _redis and _redis.exists(f"reported_listo:{conv_id}"):
                     continue
                 msgs = _get_msgs(base, headers, conv_id)
@@ -518,6 +522,8 @@ def send_leads_report(extra_phone=None):
             listo_ids = {str(c.get("id")) for c in listos_convs}
             for conv in potencial_convs:
                 conv_id = str(conv.get("id", ""))
+                if set(conv.get("labels", [])) & _LABELS_EXCLUIDOS:
+                    continue  # spam o sin potencial — no reportar
                 if conv_id in listo_ids:
                     continue  # ya aparece en sección 1
                 if _redis and _redis.exists(f"reported_potencial:{conv_id}"):
