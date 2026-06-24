@@ -1270,6 +1270,15 @@ NAME_BLACKLIST = frozenset([
     "aqui", "alla", "gracias", "mucho", "gusto", "saludos",
     "desde", "vivo", "vengo", "vive", "llego", "vienen",
     "actualmente", "originario", "originaria", "natal",
+    # Verbos y palabras de deflección (ocupado, después, etc.)
+    "ando", "andamos", "ocupado", "ocupada", "ocupados",
+    "luego", "despues", "después", "tarde", "ahorita", "ahora",
+    "agendo", "agenda", "agendamos", "regreso", "regresa",
+    "momento", "espera", "espere", "después", "pronto",
+    "acabo", "acabando", "estoy", "estamos", "tengo",
+    "puedo", "podemos", "avisame", "avísame", "aviso",
+    "contesto", "contesta", "llamo", "llaman", "mas",
+    "calma", "tranquilo", "tranquila", "ahorita", "chance",
 ])
 
 PROPERTY_ALIASES = {
@@ -3278,7 +3287,14 @@ def _process_message(data):
                         _send_paso2(phone_number, _nombre_actual, user_message)
                         return
 
-                es_pregunta = "?" in user_message or any(k in user_message.lower() for k in [
+                _defleccion_kw = [
+                    "ocupado", "ocupada", "después", "despues", "luego", "más tarde",
+                    "mas tarde", "ahorita", "ahora no", "en un momento", "al rato",
+                    "regreso", "después te", "luego te", "más al rato", "chance",
+                    "estoy en", "ando en", "andamos", "le agendo", "lo agendo",
+                ]
+                es_defleccion = any(k in user_message.lower() for k in _defleccion_kw)
+                es_pregunta = es_defleccion or "?" in user_message or any(k in user_message.lower() for k in [
                     "renta", "venta", "precio", "costo", "cuánto", "cuanto", "cuartos",
                     "recámara", "recamara", "baño", "bano", "alberca", "jardín", "jardin",
                     "amueblada", "ubicación", "ubicacion", "donde", "dónde", "m2", "metros",
