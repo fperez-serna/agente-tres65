@@ -3583,14 +3583,8 @@ Cuando tengas todo, genera la ficha y agrega: CONFIRMAR_FICHA"""
         history.append({"role": "assistant", "content": reply_clean})
         history_set(phone_number, history[-20:])
 
-        # Si GPT pidió el apellido y solo tenemos el primer nombre, setar el flag
-        _tiene_solo_primer_nombre = (
-            client_data.get(phone_number, {}).get("nombre_completo", "") and
-            len(client_data[phone_number]["nombre_completo"].split()) == 1
-        )
-        if _tiene_solo_primer_nombre and "apellido" in reply_clean.lower():
-            waiting_for_apellido.add(phone_number)
-            waiting_for_name.discard(phone_number)
+        # waiting_for_apellido solo se activa por la ruta explícita de waiting_for_name
+        # (cuando el bot ya capturó el primer nombre y envió "y tu apellido?" hardcodeado)
 
         def dispatch_reply(reply_text):
             """Process ALL tokens in GPT reply. Each token is handled in order;
