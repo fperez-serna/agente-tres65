@@ -1576,6 +1576,8 @@ def chatwoot_base():
     acct = os.environ.get("CHATWOOT_ACCOUNT_ID", "")
     return f"{url}/api/v1/accounts/{acct}"
 
+TEAM_DEFAULT_AGENT_IDS = [4, 6, 7]  # Moises, Damara, Guillermo
+
 def chatwoot_get_or_create_contact(phone_number, datos):
     base = chatwoot_base()
     nombre = datos.get("nombre_completo", "")
@@ -2074,13 +2076,16 @@ def chatwoot_get_or_create_team(team_name):
         for team in r.json():
             if team.get("name", "").lower() == team_name.lower():
                 return team["id"]
-    # No existe — crear
+    # No existe — crear con auto-asignación activada
     r = requests.post(f"{base}/teams",
-                      json={"name": team_name},
+                      json={"name": team_name, "allow_auto_assign": True},
                       headers=_chatwoot_headers(), timeout=5)
     if r.ok:
         team_id = r.json().get("id")
         print(f"Chatwoot team creado: {team_name} (id={team_id})")
+        requests.post(f"{base}/teams/{team_id}/team_members",
+                      json={"user_ids": TEAM_DEFAULT_AGENT_IDS},
+                      headers=_chatwoot_headers(), timeout=5)
         return team_id
     return None
 
@@ -2135,6 +2140,12 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
                 labels.append(f"ad-{slug}")
         chatwoot_add_labels(conv_id, labels)
         print(f"[{phone_number}] Chatwoot labels: {labels}")
+        # Asignar al team de campaña (round-robin) ahora que el lead está calificado
+        if isinstance(ctx_orig, dict) and ctx_orig.get("origen") == "anuncio" and ctx_orig.get("team_name"):
+            team_id = chatwoot_get_or_create_team(ctx_orig["team_name"])
+            if team_id:
+                chatwoot_assign_team(conv_id, team_id)
+                print(f"[{phone_number}] Asignado a team: {ctx_orig['team_name']}")
         # Agregar link de la propiedad si el lead viene de un anuncio configurado
         prop_link = ""
         ctx_orig = ad_context.get(phone_number, {})
@@ -2664,11 +2675,10 @@ def _process_message(data):
                                     slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
                                     chatwoot_add_label(conv_orig, f"ad-{slug}")
                                     print(f"[{phone_number}] Label creado: ad-{slug}")
-                                    # Crear/buscar equipo con el nombre del anuncio
+                                    # Nombre de campaña: se usa para asignar el team recién
+                                    # cuando el lead se marque como listo-para-asesor
+                                    # (ver chatwoot_mark_qualified)
                                     team_name = referral["headline"][:50]
-                                    team_id = chatwoot_get_or_create_team(team_name)
-                                    if team_id:
-                                        chatwoot_assign_team(conv_orig, team_id)
                                     # Detectar si el anuncio es de una propiedad configurada
                                     ref_text = f"{referral.get('headline','')} {referral.get('body','')}"
                                     prop_from_ref = detect_property(ref_text)
@@ -2680,6 +2690,7 @@ def _process_message(data):
                                             "source_url": prop_ref.get("url", referral.get("source_url", "")),
                                             "origen": "anuncio",
                                             "property_key": prop_from_ref,
+                                            "team_name": team_name,
                                         }
                                         if prop_ref.get("datos"):
                                             client_data.setdefault(phone_number, {}).update(prop_ref["datos"])
@@ -3212,7 +3223,8 @@ def _process_message(data):
                         "texto":      " | ".join(parts),
                         "source_id":  referral.get("source_id", ""),
                         "source_url": referral.get("source_url", ""),
-                        "origen":     "anuncio"
+                        "origen":     "anuncio",
+                        "team_name":  referral.get("headline", "")[:50],
                     }
                     print(f"[{phone_number}] Lead desde anuncio: {ad_context[phone_number]}")
                 else:
