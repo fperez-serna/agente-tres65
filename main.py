@@ -2093,9 +2093,10 @@ def chatwoot_get_or_create_team(team_name):
 def chatwoot_assign_team(conv_id, team_id):
     """Asigna una conversación a un equipo."""
     base = chatwoot_base()
-    requests.patch(f"{base}/conversations/{conv_id}/assignments",
-                   json={"team_id": team_id},
-                   headers=_chatwoot_headers(), timeout=5)
+    r = requests.post(f"{base}/conversations/{conv_id}/assignments",
+                      json={"team_id": team_id},
+                      headers=_chatwoot_headers(), timeout=5)
+    print(f"[Chatwoot] assign team conv={conv_id} team={team_id} status={r.status_code}")
 
 
 def chatwoot_update_contact_name(phone_number, nombre_completo):
