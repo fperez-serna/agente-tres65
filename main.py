@@ -2140,12 +2140,15 @@ def chatwoot_mark_qualified(phone_number, ficha_text):
                 labels.append(f"ad-{slug}")
         chatwoot_add_labels(conv_id, labels)
         print(f"[{phone_number}] Chatwoot labels: {labels}")
-        # Asignar al team de campaña (round-robin) ahora que el lead está calificado
+        # Asignar al team de campaña (round-robin) ahora que el lead está calificado.
+        # Si no viene de un anuncio con campaña detectada, cae al team general.
+        team_name = "Ventas General"
         if isinstance(ctx_orig, dict) and ctx_orig.get("origen") == "anuncio" and ctx_orig.get("team_name"):
-            team_id = chatwoot_get_or_create_team(ctx_orig["team_name"])
-            if team_id:
-                chatwoot_assign_team(conv_id, team_id)
-                print(f"[{phone_number}] Asignado a team: {ctx_orig['team_name']}")
+            team_name = ctx_orig["team_name"]
+        team_id = chatwoot_get_or_create_team(team_name)
+        if team_id:
+            chatwoot_assign_team(conv_id, team_id)
+            print(f"[{phone_number}] Asignado a team: {team_name}")
         # Agregar link de la propiedad si el lead viene de un anuncio configurado
         prop_link = ""
         ctx_orig = ad_context.get(phone_number, {})
